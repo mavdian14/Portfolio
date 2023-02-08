@@ -1,0 +1,21 @@
+import java.io.*;
+import java.util.*;
+import java.security.*;
+import javax.xml.bind.DatatypeConverter;
+
+public class Solution {
+
+    public static void main(String[] args) throws NoSuchAlgorithmException{
+        
+        Scanner scan = new Scanner(System.in);
+        MessageDigest md = MessageDigest.getInstance("MD5");
+        //Updates the digest using the specified array of bytes.
+        md.update(scan.nextLine().getBytes());
+        //Encodes this String into a sequence of bytes using the platform's default charset, storing the result into a new byte array.
+System.out.print(DatatypeConverter.printHexBinary(md.digest()).toLowerCase());
+//converts an array of bytes into a string where each byte is represented as an unassigned hex number
+scan.close();
+
+        
+    }
+}
