@@ -156,6 +156,7 @@ def get_data(ticker):
 
 def pe(ticker):
     global pe_ratio
+     #get_quote_table() returns a collection of useful data on a stock ticker, a dictionary of 70 useful related metrics (company, close price,P/E,etc.)
     pe_ratio = yfi.get_quote_table(ticker)['PE Ratio (TTM)']
     if pe_ratio != pe_ratio: #Check if NaN
         pe_ratio = 0   
