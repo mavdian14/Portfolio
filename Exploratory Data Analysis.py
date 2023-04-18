@@ -76,6 +76,7 @@ df.shape
 # COMMAND ----------
 
 # Plotting a Histogram
+#value_counts() gives the count of unique values
 df.Make.value_counts().nlargest(40).plot(kind=’bar’, figsize=(10,5))
 plt.title(“Number of cars by make”)
 plt.ylabel(‘Number of cars’)
