@@ -65,6 +65,7 @@ plt.style.use("seaborn-dark")
 bigmacro = pd.read_csv("current.csv")
 bigmacro = bigmacro.rename(columns={'sasdate':'Date'})
 bigmacro = bigmacro.set_index(keys="Date")
+#.to_period() converts a dateTimeArray to a periodArray
 bigmacro = bigmacro.drop('Transform:')
 bigmacro
 
@@ -111,7 +112,8 @@ recessions_dates = bigmacro[bigmacro["Regime"] == "Recession"].index
 
 # COMMAND ----------
 
-# find indices of recession regimes 
+# find indices of recession regimes
+#zero_like() returns an array of zeros with the same shape as the input array
 rec_idx = np.zeros_like(recessions_dates)
 rec_idx[0] = 1
 for i, date in enumerate(recessions_dates):
@@ -149,7 +151,9 @@ x1 = np.array(rr)[:-1:2]
 x2 = np.array(rr)[1::2]
 
 fig, ax = plt.subplots(1,1,figsize=(16,10))
+#semilogy(x,y) plots x,y on a linear scale on the x-axis & base-10 log scale on the y
 ax.semilogy(sp500["Adj Close"].values, label="S&P500")
+#axvspan() adds a vertical span across the axes
 ax.axvspan(x1[0], x2[0], alpha=0.5, color='gray', label="recession")
 for i in range(1,len(x1)):
     ax.axvspan(x1[i], x2[i], alpha=0.5, color='gray')
@@ -199,6 +203,7 @@ bigmacro.shape
 #Looking for stationarity
 significance_level = 0.01 
 for col in bigmacro.columns[1:]:
+    #adfuller() function returns a tuple of stats from the ADF test
     p_value_adf = adfuller( bigmacro[col] )[1] # 1 to select the p-value
     if p_value_adf > significance_level:
         bigmacro[col] = bigmacro[col].diff()
@@ -251,6 +256,7 @@ features  = bigmacro.drop(["Regime"],axis=1)
 col_names = features.columns
 
 # Standardize
+#standardScaler() removes the mean & scales each feature/variable to unit variance
 scaler = StandardScaler()
 scaler.fit(features)
 standardized_features = scaler.transform(features)
@@ -266,6 +272,7 @@ df
 
 # COMMAND ----------
 
+#apply() allows you to apply a function along one of the axis of the df
 label = df["Regime"].apply(lambda regime: 0 if regime == "Normal" else 1)
 df.insert(loc=1, column="label", value=label.values)
 df
@@ -281,6 +288,7 @@ df_features.shape, df_targets.shape
 
 #Feature Selection using logistic Regression
 scoring = "roc_auc"
+#timeSeriesSplit() provides train/test indices to split time series data samples that're observed at fixed time intervals, in train/test sets
 kfold   = model_selection.TimeSeriesSplit(n_splits=4)
 seed    = 8
 max_iter = 10000
@@ -301,11 +309,11 @@ C = 1 / np.array([0.00000001, 0.00000005, 0.0000001, 0.0000005, 0.000001, 0.0000
 # select the estimator
 model = LogisticRegression(max_iter=max_iter, penalty=penalty, solver='liblinear')
 
-# perform grid-searchCV to tune the pearameters
+# perform grid-searchCV to tune the pearameters (GridSearchCV is a technique for finding the optimal parameter values from a given set of parameters in a grid)
 lr_gscv = GridSearchCV(estimator=model, param_grid= dict(C=C), 
                        cv=kfold, scoring=scoring).fit(X = X, y = y)
 
-# select the best estimator 
+#best_estimator() stores the model that was refit on the whole training data, and is the model that is used when calling predict & score 
 lr_gscv_best = lr_gscv.best_estimator_
 lr_gscv_best
 
@@ -316,12 +324,13 @@ lr_l1 = LogisticRegression(C=lr_gscv_best.C, max_iter=lr_gscv_best.max_iter, pen
 
 # COMMAND ----------
 
-# features selection 
+# features selection. SelectFromModel() define model by default value which applied median method to set the threshhold values & fit the model on & y data
 model = SelectFromModel(lr_l1, prefit=True)
 
 # COMMAND ----------
 
-# features (columns) that have been selected 
+# features (columns) that have been selected
+#get_support() gets a mask, or integer index, of the features selected
 features_idx  = model.get_support()
 features_name = df_features.columns[features_idx]
 
@@ -343,6 +352,7 @@ fig, ax = plt.subplots(1,1,figsize=(20, 12))
 sns.heatmap(df_reduced_corr, ax=ax, mask=np.zeros_like(df_reduced_corr, dtype=np.bool), 
             cmap=sns.diverging_palette(220, 10, as_cmap=True), square=True)
 plt.show()
+#diverging_palette() pairs sequential schemes based on 2 different hues so that they diverge from a shared light color
 
 # COMMAND ----------
 
@@ -365,9 +375,13 @@ models   = []
 models.append( ('LR', LogisticRegression(C=1e09)) )
 models.append( ('LR_L1', LogisticRegression(penalty='l1',solver='liblinear')) )
 models.append( ('LR_L2', LogisticRegression(penalty='l2')) )
+#linear discriminant analysis is a linear classification ML algo
 models.append( ('LDA', LinearDiscriminantAnalysis()) )
+#KNeighborsClassifier() is for K nearest neighbor; by default looks for the 5 nearest neighbors
 models.append( ('KNN', KNeighborsClassifier()) )
+#GradientBoostingClassifier() is an additive model in a forward stage-wise fashion; it allows for the optimization of arbitrary differentiable loss functions
 models.append( ('GB', GradientBoostingClassifier()) )
+#adaBoostClassifier() combines multiple classifiers in order to increase the accuracy of classifiers
 models.append( ('ABC', AdaBoostClassifier()) )
 models.append( ('RF', RandomForestClassifier()) )
 models.append( ('XGB', xgb.XGBClassifier()) )
@@ -389,16 +403,19 @@ fig, ax = plt.subplots(1,2,figsize=(20,12))
 
 for name, model in models:
     # train current model
-    model.fit(df_train_features, df_train_targets) 
+    model.fit(df_train_features, df_train_targets)
+    #predict_proba() returns an array of lists containing the class probabilities
+    #for the input data points
     y_score = model.predict_proba(df_train_features)[:,1]
 
     # compute roc curve
+    #roc_curve() is used to evaluate binary class classification specific metrics
     fpr, tpr, thresholds = roc_curve(df_train_targets, y_score)
     
-    # area under the ROC curve
+    # roc_auc_curve() computes the area under the ROC curve
     auc = roc_auc_score(df_train_targets, y_score)
     
-    # cross-validation
+    # cross-; returns a list of scores calculated for each fold of cross-validation
     cv_results = model_selection.cross_val_score(estimator=model, cv=kfold, scoring=scoring,
                                                  X = df_train_features, 
                                                  y = LabelBinarizer().fit_transform(df_train_targets)) 
@@ -423,7 +440,7 @@ ax[1].plot(cv_res)
 ax[1].set_title('algorithm comparison based on Cross Validation Scores')
 ax[1].grid()
 
-plt.show() 
+plt.show()
 
 # COMMAND ----------
 
