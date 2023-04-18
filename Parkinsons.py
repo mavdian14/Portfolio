@@ -28,6 +28,7 @@ print(labels[labels==1].shape[0], labels[labels==0].shape[0])
 # COMMAND ----------
 
 #DataFlair - Scale the features to between -1 and 1
+#MinMaxScaler() tranforms features by scaling each feature to a given range
 scaler=MinMaxScaler((-1,1))
 x=scaler.fit_transform(features)
 y=labels
@@ -40,6 +41,7 @@ x_train,x_test,y_train,y_test=train_test_split(x, y, test_size=0.2, random_state
 # COMMAND ----------
 
 #DataFlair - Train the model
+#XGBClassifier is a scikit-learn API compatible class for classification
 model=XGBClassifier()
 model.fit(x_train,y_train)
 
