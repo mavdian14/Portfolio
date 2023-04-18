@@ -2,6 +2,7 @@
 import os
 INPUT_DATASET = "datasets/original"
 BASE_PATH = "datasets/idc"
+#os.path.sep.join() combines the pathh names into 1 complete path
 TRAIN_PATH = os.path.sep.join([BASE_PATH, "training"])
 VAL_PATH = os.path.sep.join([BASE_PATH, "validation"])
 TEST_PATH = os.path.sep.join([BASE_PATH, "testing"])
@@ -14,9 +15,10 @@ VAL_SPLIT = 0.1
 from cancernet import config
 from imutils import paths
 import random, shutil, os
-
+#list_images creates a list of image paths
 originalPaths=list(paths.list_images(config.INPUT_DATASET))
 random.seed(7)
+#random.shuffle() randomly shuffles the elements of a sequence in place
 random.shuffle(originalPaths)
 
 index=int(len(originalPaths)*config.TRAIN_SPLIT)
@@ -36,6 +38,7 @@ for (setType, originalPaths, basePath) in datasets:
 
         if not os.path.exists(basePath):
                 print(f'Building directory {base_path}')
+                #os.makedirs makes directories
                 os.makedirs(basePath)
         for path in originalPaths:
                 file=path.split(os.path.sep)[-1]
@@ -70,18 +73,24 @@ from keras import backend as K
 class CancerNet:
   @staticmethod
   def build(width,height,depth,classes):
+    #sequential() is used to create models layer-by-layer
     model=Sequential()
     shape=(height,width,depth)
     channelDim=-1
     
+    #image_data_format returns the image data format convention
     if K.image_data_format()=="channels_first":
       shape=(depth,height,width)
       channelDim=1
-        
+    #seperableConv2D consists of 2 convultions, a depthwise spatial one, then a pointwise one    
     model.add(SeparableConv2D(32, (3,3), padding="same",input_shape=shape))
+    #relu activation functions returns 0 if result is negative otherwise return input
     model.add(Activation("relu"))
+    #batchNormalization is used to make training of artificial neural networks faster & more stable through normalization of the inputs by re-centering & re-scaling
     model.add(BatchNormalization(axis=channelDim))
+    #maxpooling() calculates the largest or maximum value in every patch & the feature map
     model.add(MaxPooling2D(pool_size=(2,2)))
+    #the dropout layer sets input units to 0 w/ a frequency of rate at each step during training time
     model.add(Dropout(0.25))
     
     model.add(SeparableConv2D(64, (3,3), padding="same"))
@@ -105,7 +114,9 @@ class CancerNet:
     model.add(MaxPooling2D(pool_size=(2,2)))
     model.add(Dropout(0.25))
     
+    #.flatten() adds an extra channel dimension & output shape (batch,1)
     model.add(Flatten())
+    #dense implements the operation: output = activation(dot(input,kernel)+bias)
     model.add(Dense(256))
     model.add(Activation("relu"))
     model.add(BatchNormalization())
@@ -143,10 +154,12 @@ lenVal=len(list(paths.list_images(config.VAL_PATH)))
 lenTest=len(list(paths.list_images(config.TEST_PATH)))
 
 trainLabels=[int(p.split(os.path.sep)[-2]) for p in trainPaths]
+#to_categorical() converts a class vector to a binary class matrix
 trainLabels=np_utils.to_categorical(trainLabels)
 classTotals=trainLabels.sum(axis=0)
 classWeight=classTotals.max()/classTotals
 
+#imageDataGenerator allows your model to receive new variations of images at each epoch
 trainAug = ImageDataGenerator(
   rescale=1/255.0,
   rotation_range=20,
@@ -160,6 +173,7 @@ trainAug = ImageDataGenerator(
 
 valAug=ImageDataGenerator(rescale=1 / 255.0)
 
+#flow_from_directory allows you to read images directly from the directory and augment them while the neural network model is learning on the training data
 trainGen = trainAug.flow_from_directory(
   config.TRAIN_PATH,
   class_mode="categorical",
@@ -183,9 +197,11 @@ testGen = valAug.flow_from_directory(
   batch_size=BS)
 
 model=CancerNet.build(width=48,height=48,depth=3,classes=2)
+#adaptive gradients, is an extension of the gradient descent optimization algorithm that allows the step size in each dimension
 opt=Adagrad(lr=INIT_LR,decay=INIT_LR/NUM_EPOCHS)
 model.compile(loss="binary_crossentropy",optimizer=opt,metrics=["accuracy"])
 
+#fit_generator() is used when either we have a huge dataset to fit into our memory or when data augmentation needs to be applied
 M=model.fit_generator(
   trainGen,
   steps_per_epoch=lenTrain//BS,
@@ -196,10 +212,11 @@ M=model.fit_generator(
 
 print("Now evaluating the model")
 testGen.reset()
+#predict_generator is used to predict values on the test sets of new images
 pred_indices=model.predict_generator(testGen,steps=(lenTest//BS)+1)
-
+#.argmax() function returns indices of the max element of the array in a particular axis
 pred_indices=np.argmax(pred_indices,axis=1)
-
+#classification_report is used to show precision (F1 score) & support score of your trained classification
 print(classification_report(testGen.classes, pred_indices, target_names=testGen.class_indices.keys()))
 
 cm=confusion_matrix(testGen.classes,pred_indices)
