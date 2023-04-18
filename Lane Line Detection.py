@@ -16,14 +16,16 @@ def interested_region(img, vertices):
         mask_color_ignore = (255,) * img.shape[2]
     else:
         mask_color_ignore = 255
-    
+    #fillPoly fills a polygon shape
     cv2.fillPoly(np.zeros_like(img), vertices,mask_color_ignore)
+    #btiwise_and is the cv2 version of the bitwise AND formula
     return cv2.bitwise_and(img,np.zeros_like(img))
 
 # COMMAND ----------
 
 #Conversion of pixels to a line in Hough Transform Space
 def hough_lines(img,rho,theta,threshold,min_line_len,max_line_gap):
+    #HoughlinesP uses the probabilistic Hough transformation
     lines = cv2.HoughlinesP(img,rho,theta,threshold,np.array([]),minLineLength=min_line_len,maxLineGap=max_line_gap)
     line_img = np.zeros((img.shape[0], img.shape[1],3), dtype=np.uint8)
     lines_drawn(line_img,lines)
@@ -97,25 +99,29 @@ def lines_drawn(img,lines,color=[255,0,0],thickness=6):
 
 #process each frame of video to detect lane
 def weighted_img(img, initial_img,α=0.8, β=1., λ=0.):
+    #addweighted() function helps in adding 2 images & blending them by passing the alpha, beta, & gamma values
     return cv2.addWeighted(initial_img,α, img, β, λ)
 
 def process_image(image):
     
     global first_frame
-    
+    #cvtcolor is used to convery an image from 1 color space to another
     gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     img_hsv = cv2.cvtColor(image,cv2.COLOR_RGB2HSV)
     
     lower_yellow = np.array([20,100,100], dtype = "uint8")
     upper_yellow = np.array([30,255,255], dtype = "uint8")
     
+    #the inRange() returns a sequence of numbers, 0,..,n by default
     mask_yellow = cv2.inRange(img_hsv,lower_yellow,upper_yellow)
      mask_white = cv2.inRange(gray_image, 200, 255)
     mask_yw = cv2.bitwise_or(mask_white, mask_yellow)
     mask_yw_image = cv2.bitwise_and(gray_image, mask_yw)
     
+    #gaussianBlur() is a way to apply a low-pass filter in skimage
     gauss_gray= cv2.GaussianBlur(mask_yw_image, (5, 5), 0)
     
+    #Canny() is used to detect the edges in an image
     canny_edges = cv2.Canny(gauss_gray,50,150)
     
     canny_edges = cv2.Canny(gauss_gray,50,150)
@@ -159,36 +165,48 @@ global last_frame2
 last_frame2 = np.zeros((480,640,3), dtype=np.uint8)
 global cap1
 global cap2
+#videoCapture() allows you to read,capture,& display video files & camera stream
 cap1 = cv2.VideoCapture("path_to_input_test_video")
 cap2 = cv2.VideoCapture("path_to_resultant_lane_detected_video")
 
 def show_vid():
+    #isOpened() is a boolean which returns True if the cap object has started capturing the frames
     if not cap1.isOpened():
         print("cant open the camera1")
         flag1, frame1 = cap1.read()
+        #resize() is used to resize an image
         frame1 = cv2.resize(frame1,(400,500))
         if flag1 is None:
             print("Major error!")
         elif flag1:
             global last_frame1
             last_frame1 = frame1.copy()
+            
             pic = cv2.cvtColor(last_frame1,cv2.COLOR_BGR2RGB)
+            #fomarray() creates an image memory from an object exporting the array interface
             img = Image.fromarray(pic)
+            
             imgtk = ImageTk.PhotoImage(image=img)
+            
             lmain.imgtk = imgtk
             lmain.configure(image=imgtk)
             lmain.after(10,show_vid)
             
 if __name__ == '__main__':
     root=tk.Tk()
+    #.Label() creates a label widget
     lmain=tk.Label(master=root)
     lmain2 = tk.Label(master=root)
     lmain.pack(side=LEFT)
+    #.pack() converts a given list of values into their corresponding string representation
     lmain2.pack(side=RIGHT)
     root.title("Lane-line detection")
-    root.geometry("900x700+100+10") 
+    #.geometry() sets the geometry of a tk frame
+    root.geometry("900x700+100+10")
+    #
     exitbutton = Button(root, text='Quit',fg="red",command=   root.destroy).pack(side = BOTTOM,)
     show_vid()
     show_vid2()
+    #mainloop() runs the tk event loop
     root.mainloop()                                  
     cap.release()
