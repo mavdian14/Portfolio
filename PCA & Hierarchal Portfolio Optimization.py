@@ -35,6 +35,7 @@ warnings.filterwarnings('ignore')
 
 # COMMAND ----------
 
+#read_html() reads the HTML file into a list of pd df's
 dow_tab = pd.read_html('https://en.wikipedia.org/wiki/Nasdaq-100')[4]
 dow_tab
 
@@ -47,10 +48,11 @@ tickers
 
 # COMMAND ----------
 
+#to_list() returns a list of the values
 start = "2015-01-01"
 df = pd.DataFrame()
 for stock_name in tickers:
-    # daily data
+    # daily data; yf.download() downloads financial data from Yahoo Finance
     df[stock_name] = yf.download(stock_name,start)['Adj Close']  
     
 df = round(df,2) 
@@ -122,7 +124,10 @@ def plotPCA(plot=False):
     cov_matrix_raw = X_train_raw.loc[:,X_train_raw.columns != '^NDX'].cov()
 
     var_threshold = 0.95
+    #explained_variance_ratio_ returns a vetctor of hte variance explained by each dimension
     var_explained = np.cumsum(pca.explained_variance_ratio_)
+    #np.where() function selects elements from an array based on a condition
+    #np.logical_not computes the logical NOT of boolean argument
     num_comp = np.where(np.logical_not(var_explained < var_threshold))[0][0] + 1  
 
     if plot:
@@ -229,6 +234,7 @@ def PCWeights():
     weights = weights.values.T
     return weights
 
+#PCWeights() gives the weights of the Principal Components
 weights = PCWeights()
 portfolio = portfolio = pd.DataFrame()
 
@@ -268,6 +274,7 @@ def plotSharpe(eigen):
     year_frac = (eigen_portfolio_returns.index[-1] - eigen_portfolio_returns.index[0]).days / 252
 
     df_plot = pd.DataFrame({'PC': eigen_portfolio_returns, '^NDX': X_test_raw.loc[:, '^NDX']}, index=X_test.index)
+    #cumprod returns a df where,row by row, multiplying the values w/ the values from the prev. row ending w/ a df where values in last row are a product of the values above it in its column
     np.cumprod(df_plot + 1).plot(title='Returns of the NASDAQ 100 index vs. First eigen-portfolio', 
                              figsize=(12,6), linewidth=3)
     plt.show()
@@ -281,6 +288,7 @@ plotSharpe(eigen=plotEigen(weights=weights[4]))
 corr = data.corr()
 size = 10
 fig, ax = plt.subplots(figsize=(size, size))
+#matshow() is used to visualize the 2D matrix
 ax.matshow(corr,cmap=cm.get_cmap('coolwarm'), vmin=0,vmax=1)
 plt.xticks(range(len(corr.columns)), corr.columns, rotation='vertical', fontsize=8);
 plt.yticks(range(len(corr.columns)), corr.columns, fontsize=8);
@@ -288,12 +296,14 @@ plt.yticks(range(len(corr.columns)), corr.columns, fontsize=8);
 # COMMAND ----------
 
 #Clustering of Correlation - Agglomerate
+#linkage() performs hierarchical/agglomerative clustering
 Z = linkage(corr, 'average')
 Z[0]
 
 # COMMAND ----------
 
 #Cophenetic Correlation coefficient
+#cophenet() is used to calculate the cophenetic distances btwn each observation in the hierarchical clustering
 c, coph_dists = cophenet(Z, pdist(corr))
 c
 
