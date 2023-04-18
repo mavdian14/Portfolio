@@ -38,6 +38,7 @@ def retrieve_stock_data(stock):
     try:
         print(stock)
         yahoo_financials = YahooFinancials(stock)
+         #get_financial_stmts() used to retrieve financial statements of a company
         balance_sheet_data = yahoo_financials.get_financial_stmts('annual', 'balance')
         income_statement_data = yahoo_financials.get_financial_stmts('annual', 'income')
         cash_statement_data = yahoo_financials.get_financial_stmts('annual', 'cash')
@@ -51,6 +52,7 @@ def retrieve_stock_data(stock):
 # COMMAND ----------
 
 start = time.time()
+#ThreadPoolExecutor() allows you to create & manage thread pools
 executor = cf.ThreadPoolExecutor(16)
 futures = [executor.submit(retrieve_stock_data, stock) for stock in tickers]
 cf.wait(futures)
