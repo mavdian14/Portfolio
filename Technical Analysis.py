@@ -49,11 +49,13 @@ mask
 # COMMAND ----------
 
 ax = mask.plot(secondary_y='Position', figsize=(16, 10))
+#set_bbox_to_anchor() will create a bounding box on the axes, inside which the actual legend will be placed
 ax.get_legend().set_bbox_to_anchor((0.25, 0.85));
 
 # COMMAND ----------
 
 #Vectorized Backtesting
+#np.log() computes the natural log of input array's elements
 mask['Returns'] = np.log(mask['Adj Close'] / mask['Adj Close'].shift(1))
 mask['Strategy'] = mask['Position'].shift(1) * mask['Returns']
 mask
@@ -116,6 +118,7 @@ for EMA1, EMA2 in product(ema1, ema2):
     data = pd.DataFrame(raw['Adj Close'])
     data.dropna(inplace=True)
     data['Returns'] = np.log(data['Adj Close'] / data['Adj Close'].shift(1))
+    #.ewm() provides exponential weighted functions
     data['EMA1'] = data['Adj Close'].ewm(span=EMA1, adjust=False).mean()
     data['EMA2'] = data['Adj Close'].ewm(span=EMA2, adjust=False).mean()
     data.dropna(inplace=True)
@@ -308,6 +311,7 @@ data
 # COMMAND ----------
 
 data['returns'] = np.log(data['Adj Close'] / data['Adj Close'].shift(1))
+#np.sign() returns an element-wise indication of the sign of a number
 data['position'] = np.sign(data['returns'])
 data['strategy'] = data['position'].shift(1) * data['returns']
 to_plot = ['returns']
