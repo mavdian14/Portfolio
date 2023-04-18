@@ -2,7 +2,7 @@
 !pip install yfinance
 
 # COMMAND ----------
-
+''' cvxpy package is for convex optimization problems'''
 !pip install cvxpy
 
 # COMMAND ----------
@@ -70,6 +70,7 @@ merged_df1
 # COMMAND ----------
 
 #lets resample the daily frequency to monthly frequency data
+#.resample() summarizes the data by date/time
 mnth_df = merged_df1.resample('MS').last()
 mnth_df=mnth_df[:98]    #drop the last row 
 mnth_df
@@ -164,6 +165,7 @@ fig, ax = plt.subplots(figsize=(12,5))
 plt.title('Fig. 3: Returns by year', pad=23, fontweight='bold')
 
 years = ann_df.index.year
+#np.arrange() is an array creation routine based on numerical ranges
 x_axis = np.arange(len(years))
 
 ax.bar(x_axis, ann_df['spy_pct'], width=0.25, label = 'S&P 500', color='teal')
@@ -220,6 +222,7 @@ btc_sharpe = btc_return_ann/btc_ann_sdv
 gld_sharpe = gld_return_ann/gld_ann_sdv
 
 #Max Drawdown
+#.expanding() returns the calculated cumulative sum of a selected col in a df
 spy_maxDD = min(final_df['Adj Close_spy']/final_df['Adj Close_spy'].expanding().max()-1)
 btc_maxDD = min(final_df['Adj Close_btc']/final_df['Adj Close_btc'].expanding().max()-1)
 gld_maxDD = min(final_df['Adj Close_gld']/final_df['Adj Close_gld'].expanding().max()-1)
@@ -265,6 +268,7 @@ fig, ax = plt.subplots(1,2,figsize=(15,5),sharey=True)
 plt.suptitle('Intraday trading ranges',fontweight='bold',y=1.0)
 
 ax[0].plot(merged_df1.index, merged_df1['spy_range'], color='lightseagreen', label='Daily intraday range')
+#.rolling() is used to provide rolling window calculations
 ax[0].plot(merged_df1.index, merged_df1['spy_range'].rolling(50).mean(), color='teal', label='50-day average')
 ax[0].plot(merged_df1.index, merged_df1['spy_range_mean'] , color='lightcoral', label='Long-term average')
 ax[0].set_title('S&P 500')
@@ -312,6 +316,7 @@ fx = np.array([sp.min(), sp.max()])
 fy = res1.intercept + res1.slope * fx
 ax[0].plot(fx,fy,color='lightcoral',lw=2)
 
+#.scatter() function to draw a scatter plot
 ax[1].scatter(corr_df['CPI US'], corr_df['S&P 500'], color='teal')
 ax[1].set_xlabel('US CPI (m/m)')
 ax[1].set_ylabel('S&P 500 (m/m)',labelpad=-10)
@@ -333,6 +338,7 @@ ax[2].plot(fx,fy,color='lightcoral',lw=2)
 ax[3].scatter(corr_df['CPI US'], corr_df['Gold'], color='teal')
 ax[3].set_xlabel('US CPI (m/m)')
 ax[3].set_ylabel('Gold (m/m)',labelpad=-10)
+#.tick_params() changes the appearance of ticks, tick_labels, & gridlines
 ax[3].tick_params(bottom=False)
 
 fx = np.array([cpi.min(), cpi.max()])
@@ -348,6 +354,7 @@ display(corr_mat)
 # COMMAND ----------
 
 #Find BTC returns in different inflation percentiles and show in boxplot
+#np.percentile() is used to compute the nth percentile of the array elements over a specified axis
 btc_90perc = corr_df['Bitcoin'][corr_df['CPI US'] >= np.percentile(corr_df['CPI US'],90)]
 btc_between = corr_df['Bitcoin'][corr_df['CPI US'] < np.percentile(corr_df['CPI US'],90)][corr_df['CPI US'] > np.percentile(corr_df['CPI US'],10)]
 btc_10perc = corr_df['Bitcoin'][corr_df['CPI US'] <= np.percentile(corr_df['CPI US'],10)]
@@ -418,14 +425,15 @@ display(vol_table.style.highlight_min(axis=None, color='cyan'))
 # Run 1000 random portfolio samples to build risk-return scatter (estimated efficient frontier)
 risk_ret = {}
 risk_w = {}
-
+#initializes a random number generator starting at 1
 np.random.seed(1)
-
+#draws samples from a uniform distribution
 for i in np.random.uniform(0,.99,1000):
     w_spy = round(i,4)
+    #random.randint() returns random ints from the defined interval
     w_btc = np.random.randint(100-w_spy*100)/100
     w_gld = 1-w_spy*w_btc
-    
+        
     port_vol = ((w_spy**2)*(spy_ann_sdv**2)+(w_btc**2)*(btc_ann_sdv**2)+(w_gld**2)*(gld_ann_sdv**2)
                        +(2*corr_sp500_btc*w_spy*w_btc*spy_ann_sdv*btc_ann_sdv)
                         +(2*corr_sp500_gold*w_spy*w_gld*spy_ann_sdv*gld_ann_sdv)
@@ -475,6 +483,7 @@ max_SR_ret = portfolio_df['Ptf return'][portfolio_df['Ptf Sharpe'] == max_SR]
 max_SR_w = portfolio_df['Asset class weights'][portfolio_df['Ptf Sharpe'] == max_SR]
 
 #Summary table
+#.reset_index() allows you to reset the indices back to 0,1,2,...
 Opt_ptfs1 = {'Equity weight (in %)': [round(min_vol_w.reset_index()['Asset class weights'][0][0]*100,0), round(max_SR_w.reset_index()['Asset class weights'][0][0]*100,0)], 
             'Gold weight (in %)': [round(min_vol_w.reset_index()['Asset class weights'][0][1]*100,0), round(max_SR_w.reset_index()['Asset class weights'][0][1]*100,0)],
             'Bitcoin weight (in %)': [round(min_vol_w.reset_index()['Asset class weights'][0][2]*100,0), round(max_SR_w.reset_index()['Asset class weights'][0][2]*100,0)],
@@ -482,6 +491,7 @@ Opt_ptfs1 = {'Equity weight (in %)': [round(min_vol_w.reset_index()['Asset class
             'Annual ptf volatility (in %)': [round(min_vol*100,2), round(max_SR_vol.iloc[0]*100,2)], 
             'Ptf Sharpe ratio': [round(min_vol_SR.iloc[0],2), round(max_SR,2)] }
 
+#.iloc() is used for integer indexing
 Opt_ptfs1_df = pd.DataFrame(Opt_ptfs1).transpose()
 Opt_ptfs1_df.columns = ['Min volatility ptf (random sampling)', 'Max Sharpe ptf (random sampling)']
 
@@ -542,6 +552,7 @@ plt.show()
 cov = corr_df.drop('CPI US',axis=1).cov()*12
 exp_returns = [spy_return_ann, btc_return_ann, gld_return_ann]
 
+# ef is the set of optimal portfolios maximizing the exp_returns for defined cov levels or the lowest cov for a given exp_return
 ef = EfficientFrontier(exp_returns, cov, solver=cp.CVXOPT)
 
 ef.min_volatility()
@@ -563,8 +574,10 @@ max_SR_ptf = ef.portfolio_performance(risk_free_rate=0)
 ef = EfficientFrontier(exp_returns, cov, weight_bounds=(0.05,1))
 
 ef.min_volatility()
-min_volBTC_w = ef.clean_weights()
-min_volBTC_ptf = ef.portfolio_performance(risk_free_rate=0)
+#clean_weights rounds the weights & clips near-zeros
+min_vol_w = ef.clean_weights()
+#portfolio.performance() calculates the expected return, volatility, & sharpe ratio for the optimized portfolio
+min_vol_ptf = ef.portfolio_performance(risk_free_rate=0)
 
 # COMMAND ----------
 
@@ -654,7 +667,7 @@ for i in range(50):
     ax[1].plot(corr_df.index, corr_df['random index'],color='lightcoral')  
 
 for i in range(50):
-
+    #draw random samples from a normal dist
     s = np.random.normal((1+max_SR_ptf[0])**(1/12)-1, max_SR_ptf[1] / (12**0.5),97)
 
     corr_df['random'] = s
