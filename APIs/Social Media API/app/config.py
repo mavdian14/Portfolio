@@ -1,5 +1,6 @@
 from pydantic import BaseSettings
 
+#Class to set the setting types for the Postgres db
 
 class Settings(BaseSettings):
     database_hostname: str
