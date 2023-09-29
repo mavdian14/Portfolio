@@ -1,2 +1,2 @@
-# ML Models, Quantitative Finance Models, & Programming Solutions
-This repository contains ML models, Quantitative Finance models, solutions to problems & algorithms in various programming topics (Strings, Sorting, Search, Graph Theory, Greedy, Dynamic Programming, Constructive Algorithms, Recursion, Game Theory, etc.)
+# Portfolio - Data Engineering, APIs, ML Models, Quantitative Finance Models, Algorithms, & Programming Solutions
+This repository contains Data Engineering Projects, API Projects, ML models, Quantitative Finance models, data structures, & algorithms in various programming topics (Strings, Sorting, Search, Graph Theory, Greedy, Dynamic Programming, Constructive Algorithms, Recursion, Game Theory, etc.)
