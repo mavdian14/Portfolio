@@ -3,6 +3,7 @@ import logging
 
 from api import MoveshelfApi, Metadata
 
+#create basic config for logging system by creating a StreamHandler
 logging.basicConfig(level=logging.INFO)
 
 if __name__ == "__main__":
@@ -16,14 +17,18 @@ if __name__ == "__main__":
         params = ('title', 'description', 'allowDownload', 'allowUnlistedAccess')
         clip_id = api.uploadFile(args.filePath, args.project,
                 {k: vars(args)[k] for k in params if k in vars(args)})
+                #vars(args) to return __dict__ attribute of args
         print("Created new clip with ID: {}".format(clip_id))
 
     projects = api.getUserProjects()
 
+    #parser will parse CLI options/args
     parser = argparse.ArgumentParser()
+    #sub_parsers is a parser bound to parser
     sub_parsers = parser.add_subparsers()
 
     list_parser = sub_parsers.add_parser('list', help="List user projects")
+    #set_defaults() to modify multiple parameter values of getUserProjects
     list_parser.set_defaults(func=getUserProjects)
 
     upload_parser = sub_parsers.add_parser('up', help="Upload file")
