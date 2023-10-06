@@ -13,6 +13,7 @@ class Dataset(object):
             dataset = self.mvshlf_api.getProjectDatasets(self.project_id)
             url = dataset[0]['downloadUri']
         r = requests.get(url, stream = True)
+        #BytesIO to manipulate byte data; read the raw binary from get request
         self.data = np.load(BytesIO(r.raw.read()))
 
     def get_training_set(self):
