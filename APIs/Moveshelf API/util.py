@@ -1,7 +1,9 @@
 from api import Metadata
 
 def getPatientMetadata(api, mySubjectId):
+    #.getSubjectDetails() GET request to retreive details of subjectId
     subjectDetails = api.getSubjectDetails(mySubjectId)
+    #eval() evaluates if expression is legal
     patientMetadata = eval(subjectDetails['metadata'])
     return patientMetadata
 
