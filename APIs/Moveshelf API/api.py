@@ -28,7 +28,7 @@ class TimecodeFramerate(enum.Enum):
     FPS_60 = '60'
     FPS_1000 = '1000'
 
-
+#TypedDict() to give precise types for dictionaries
 Timecode = TypedDict('Timecode', {
     'timecode': str,
     'framerate': TimecodeFramerate
@@ -50,6 +50,7 @@ class MoveshelfApi(object):
     def __init__(self, api_key_file='mvshlf-api-key.json', api_url = 'https://api.moveshelf.com/graphql'):
         self._crc32c = mkPredefinedCrcFun('crc32c')
         self.api_url = api_url
+        #check is api_key_file isn't already a file
         if path.isfile(api_key_file) == False:
             raise ValueError("No valid API key. Please check instructions on https://github.com/moveshelf/python-api-example")
 
@@ -98,6 +99,7 @@ class MoveshelfApi(object):
             'clientId': 'manual',
             'metadata': metadata
         })
+        #logs a message with level INFO on root logger
         logging.info('Created clip ID: %s', creation_response['mocapClip']['id'])
 
         return creation_response['mocapClip']['id']
@@ -105,6 +107,7 @@ class MoveshelfApi(object):
     def uploadFile(self, file_path, project, metadata=Metadata()):
         logger.info('Uploading %s', file_path)
 
+        #.basename() to return filename part of file_path
         metadata['title'] = metadata.get('title', path.basename(file_path))
         metadata['allowDownload'] = metadata.get('allowDownload', False)
         metadata['allowUnlistedAccess'] = metadata.get('allowUnlistedAccess', False)
@@ -177,7 +180,7 @@ class MoveshelfApi(object):
                 }
             ''',
             projectId = project_id,
-            name = name
+            name = name 
         )
 
         return data['createPatient']['patient']
