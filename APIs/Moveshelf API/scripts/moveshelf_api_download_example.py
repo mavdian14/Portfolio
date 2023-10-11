@@ -1,6 +1,8 @@
 # install required packages: pip install -r ../requirements.txt
 import os, sys, json
+#os.getcwd() returns current working directory of a process
 parentFolder = os.path.dirname(os.getcwd())
+#add a parentFolder path
 sys.path.append(parentFolder)
 from api import MoveshelfApi, Metadata
 import util
@@ -50,6 +52,7 @@ with open(os.path.join(parentFolder,'mvshlf-config.spec.json'), 'r') as configFi
 personalConfig = os.path.join(parentFolder,'mvshlf-config.json')
 if os.path.isfile(personalConfig):
     with open(personalConfig, 'r') as configFile:
+        #data.update() updates the configfile object
         data.update(json.load(configFile))
 
 api = MoveshelfApi(api_key_file = os.path.join(parentFolder,data['apiKeyFileName']), api_url = data['apiUrl'])
@@ -157,7 +160,7 @@ if not stopProcessing:
     for data in existingAdditionalData:
         if not (len(dataTypesToDownload) == 0 or data['dataType'] in dataTypesToDownload):
             continue
-
+        #os.path.splitext() splits the pathname path into a pair (root,ext) s.t. root + ext = path
         filename, file_extension = os.path.splitext(data['originalFileName'])
         if not (len(fileExtensionsToDownload) == 0 or file_extension in fileExtensionsToDownload):
             continue
