@@ -10,6 +10,7 @@ from app.config import settings
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+#set_main_option() overwrites the sqlalchemy.url key in the alembic section of the alembic.ini.file
 config.set_main_option(
     "sqlalchemy.url", f'postgresql+psycopg2://{settings.database_username}:{settings.database_password}@{settings.database_hostname}:{settings.database_port}/{settings.database_name}')
 
