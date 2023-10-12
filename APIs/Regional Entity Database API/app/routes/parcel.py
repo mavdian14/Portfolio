@@ -238,6 +238,7 @@ async def Find_Parcels_By_Address(AddressInput: str, Current: bool):
     # Assign fetched parcel_ids, current_flags, and create_dates to variables.
     parcel_ids = [parcel['parcel_id'] for parcel in parcels_fetch]
     parcel_ids_and_current_flags = [parcel['parcel_id'] + str(parcel["current_flag"]).lower() for parcel in parcels_fetch]
+    #strftime() returns a str representing date,time
     parcel_create_dates = [parcel['create_date'].strftime("%Y-%m-%d") for parcel in parcels_fetch]
     
     if len(parcels_fetch) == 0:
