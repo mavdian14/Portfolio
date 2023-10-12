@@ -1,6 +1,7 @@
 # Python FastAPI for Serving Parcel Data
 FROM python:3.8-slim-buster
 
+#add metadata to maintainer object
 LABEL maintainer='Branson Fox <bransonfox@umsl.edu>'
 
 # Environmental Variables
