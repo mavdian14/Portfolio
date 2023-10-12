@@ -16,6 +16,7 @@ from .routes import (
 )
 
 app = FastAPI(title='REDB API', docs_url="/redb/docs", redoc_url="/redb/redoc", openapi_url="/redb/openapi.json")
+#add_middleware() to handle server errors & custom exception handlers
 app.add_middleware(CORSMiddleware, allow_origins=['*'])
 app.include_router(parcel.router)
 app.include_router(parcel_detail.router)
