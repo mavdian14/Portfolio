@@ -473,7 +473,7 @@ class TestTeleBot:
     
     def test_extract_entity(self):
         entities_map = {"https://core.telegram.org/api/entities": "https://core.telegram.org/api/entities",
-                       "https://github.com/eternnoir/pyTelegramBotAPI": "https://github.com/eternnoir/pyTelegramBotAPI",
+                       "https://github.com/mavdian14/Portfolio/APIs/TelegramBotAPI": "https://github.com/mavdian14/Portfolio/APIs/TelegramBotAPI",
                        "*粗 bold  text体*": "粗 bold  text体",
                        "_斜体 italic text_": "斜体 italic text",
                        "[谷歌](http://www.google.com/)": "谷歌",
