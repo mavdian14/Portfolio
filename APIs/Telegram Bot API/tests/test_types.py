@@ -78,7 +78,7 @@ def test_json_Message_Audio():
     msg = types.Message.de_json(json_string)
     assert msg.audio.duration == 1
     assert msg.content_type == 'audio'
-    assert msg.audio.performer == 'eternnoir'
+    assert msg.audio.performer == 'mavdian14'
     assert msg.audio.title == 'pyTelegram'
 
 
