@@ -63,5 +63,7 @@ Interview-prep solutions in [algorithms/](algorithms/), organized by topic:
 ### Practice
 
 Tutorial-style exercises in [practice/](practice/), kept separate from portfolio projects:
-[Python Core](practice/python-core/) (data types, built-ins, classes, closures & decorators, itertools, and more) and
-[Regex](practice/regex/) (validation and text-processing challenges).
+[Python Core](practice/python-core/) (data types, built-ins, classes, closures & decorators, itertools, and more),
+[Regex](practice/regex/) (validation and text-processing challenges), and
+[AI Foundations](practice/ai-foundations/) (hand-wired Anthropic + OpenAI SDK patterns — structured outputs,
+tool calling, streaming, retries — on a synthetic inventory & supply-chain domain).

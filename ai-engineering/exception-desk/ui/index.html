@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>exception-desk</title>
+<!--
+  Week-1 placeholder: enough to exercise POST /triage from a browser.
+  The real triage-queue view (filters, approve/edit/reject, SSE progress) lands in week 4.
+-->
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#262b36; --text:#e6e9ef; --dim:#8b93a7;
+          --accent:#5b9dff; --crit:#ff6b6b; --high:#ffb454; --med:#5b9dff; --low:#5fd38d; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:15px/1.5 ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:960px; margin:0 auto; padding:32px 20px 64px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 24px; font-size:13px; }
+  .row { display:flex; gap:12px; align-items:flex-start; }
+  textarea { flex:1; min-height:120px; background:var(--panel); color:var(--text);
+             border:1px solid var(--line); border-radius:8px; padding:12px; resize:vertical;
+             font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  button { background:var(--accent); color:#08111f; border:0; border-radius:8px;
+           padding:12px 18px; font-weight:600; cursor:pointer; }
+  button[disabled] { opacity:.5; cursor:progress; }
+  .samples { margin:12px 0 0; display:flex; gap:8px; flex-wrap:wrap; }
+  .samples button { background:var(--panel); color:var(--dim); border:1px solid var(--line);
+                    font-weight:400; padding:6px 10px; font-size:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:18px; margin-top:24px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; }
+  .k { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  .v { font-size:15px; margin-top:2px; word-break:break-word; }
+  .sev-critical { color:var(--crit); } .sev-high { color:var(--high); }
+  .sev-medium { color:var(--med); } .sev-low { color:var(--low); }
+  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
+  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:500; font-size:11px; text-transform:uppercase; }
+  pre { background:#0b0d12; border:1px solid var(--line); border-radius:8px; padding:12px;
+        overflow:auto; font-size:12px; max-height:280px; }
+  .err { color:var(--crit); }
+  h2 { font-size:14px; margin:22px 0 6px; color:var(--dim); text-transform:uppercase;
+       letter-spacing:.05em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>exception-desk</h1>
+  <p class="sub">Paste an inbound supplier email or planner note. The service gathers evidence
+     with tools, then extracts a validated record. Nothing is committed — a human decides.</p>
+
+  <div class="row">
+    <textarea id="text">Following up on PO-88411 for the M 4K25 RGB (CHR-M4K25-RGB) — our production line is fully committed through December, so we cannot confirm the Nov 14 date. We can offer Dec 2 at the earliest.</textarea>
+    <button id="go">Triage</button>
+  </div>
+  <div class="samples" id="samples"></div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+const SAMPLES = [
+  "The 2.00-3.55:1 long-throw lens is a mess this month. Demand came in nearly double forecast for the quarter and we have 5 on hand against 11 allocated.",
+  "Control board PCB-CTRL-M4K is at zero on hand with 4 allocated to service jobs. Vektor has quoted 90 days and we are seeing 152 days actual.",
+  "Invoice INV-20931 for the SPR-FILT-GS filter kits was issued at the wrong unit price. Please confirm the corrected amount.",
+  "We are seeing a shortage of the 0.95\" DMD chip across the industry. Please expect lead times on the long-throw lens family (LNS-200-355) to extend by 3-4 weeks."
+];
+
+const out = document.getElementById('out');
+const go = document.getElementById('go');
+const ta = document.getElementById('text');
+const samples = document.getElementById('samples');
+
+SAMPLES.forEach(s => {
+  const b = document.createElement('button');
+  b.textContent = s.slice(0, 42) + '…';
+  b.onclick = () => { ta.value = s; };
+  samples.appendChild(b);
+});
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+go.onclick = async () => {
+  go.disabled = true; go.textContent = 'Triaging…';
+  out.innerHTML = '<div class="card">Running the tool loop, then extracting…</div>';
+  try {
+    const r = await fetch('/triage', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({text: ta.value})
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || r.statusText);
+    out.innerHTML = render(body);
+  } catch (e) {
+    out.innerHTML = `<div class="card err">${esc(e.message)}</div>`;
+  } finally {
+    go.disabled = false; go.textContent = 'Triage';
+  }
+};
+
+function render(d) {
+  const p = d.provenance || {};
+  const ev = (d.evidence || []).map(e => `<tr>
+      <td>${e.round}</td><td>${esc(e.tool)}</td>
+      <td>${e.is_error ? '<span class="err">error</span>' : 'ok'}</td>
+      <td>${esc(JSON.stringify(e.result).slice(0, 120))}</td></tr>`).join('');
+  return `
+  <div class="card">
+    <div class="grid">
+      <div><div class="k">SKU</div><div class="v">${esc(d.sku)}</div></div>
+      <div><div class="k">Severity</div><div class="v sev-${esc(d.severity)}">${esc(d.severity)}</div></div>
+      <div><div class="k">Root cause</div><div class="v">${esc(d.root_cause)}</div></div>
+      <div><div class="k">Weeks of cover</div><div class="v">${d.weeks_of_cover ?? '—'}</div></div>
+      <div><div class="k">Lead-time slippage</div><div class="v">${d.lead_time_impact_days ?? '—'} d</div></div>
+      <div><div class="k">Confidence</div><div class="v">${d.confidence ?? '—'}</div></div>
+      <div><div class="k">Escalate</div><div class="v">${d.requires_escalation ? 'yes' : 'no'}</div></div>
+      <div><div class="k">Status</div><div class="v">${esc(d.status)}${d.duplicate ? ' (duplicate)' : ''}</div></div>
+    </div>
+
+    <h2>Recommended action</h2>
+    <div>${esc(d.recommended_action)}</div>
+    <h2>Rationale</h2>
+    <div>${esc(d.rationale)}</div>
+
+    <h2>Evidence — what the model actually checked</h2>
+    <table><thead><tr><th>Round</th><th>Tool</th><th>Status</th><th>Result</th></tr></thead>
+      <tbody>${ev || '<tr><td colspan="4">none</td></tr>'}</tbody></table>
+
+    <h2>Provenance</h2>
+    <div class="grid">
+      <div><div class="k">Prompt</div><div class="v">${esc(p.prompt_version)}</div></div>
+      <div><div class="k">Provider</div><div class="v">${esc(p.provider)}</div></div>
+      <div><div class="k">Model</div><div class="v">${esc(p.model)}</div></div>
+      <div><div class="k">Calls</div><div class="v">${p.llm_calls ?? '—'}</div></div>
+      <div><div class="k">Tokens in/out</div><div class="v">${p.input_tokens ?? 0} / ${p.output_tokens ?? 0}</div></div>
+      <div><div class="k">Cost</div><div class="v">$${p.cost_usd ?? '0'}</div></div>
+    </div>
+    <details style="margin-top:14px"><summary class="k" style="cursor:pointer">raw response</summary>
+      <pre>${esc(JSON.stringify(d, null, 2))}</pre></details>
+  </div>`;
+}
+</script>
+</body>
+</html>
