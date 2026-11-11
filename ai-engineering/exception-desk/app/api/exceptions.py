@@ -21,12 +21,14 @@ from app.db.models import ExceptionRow
 from app.domain.inventory import source_kind_for
 from app.domain.models import (
     EvidenceOut,
+    IngestResponse,
     ProvenanceOut,
     QueueItem,
     QueuePage,
     TriageRecordOut,
     TriageRequest,
 )
+from app.pipeline.ingest import PENDING_STATUSES, ingest
 from app.pipeline.triage import TriageOutcome, triage
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,38 @@ def _to_record(row: ExceptionRow, *, duplicate: bool = False) -> TriageRecordOut
 
 
 @router.post(
+    "/exceptions",
+    response_model=IngestResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue one inbound message for triage",
+    responses={202: {"description": "Accepted — a worker will triage it"}},
+)
+async def ingest_endpoint(
+    payload: TriageRequest,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> IngestResponse:
+    """Store the message and queue it, then return immediately.
+
+    ``202`` rather than ``200`` because the work has not happened yet: a tool-calling request
+    takes 5-30 seconds, and no proxy or client will hold a connection open that long. The
+    response carries the job id for correlation; ``GET /exceptions/{id}`` reports the verdict
+    once a worker has produced it.
+
+    Safe to repeat. Identical text returns the same exception, and an exception that already
+    has a queued or running job is not queued twice — enforced by a partial unique index, not
+    just by application logic.
+    """
+    outcome = await ingest(session, text=payload.text, source_kind=payload.source_kind)
+    return IngestResponse(
+        exception_id=outcome.exception_id,
+        job_id=outcome.job_id,
+        status=outcome.status,
+        duplicate=outcome.duplicate,
+    )
+
+
+@router.post(
     "/triage",
     response_model=TriageRecordOut,
     summary="Triage one inbound message, synchronously",
@@ -111,13 +145,14 @@ async def triage_endpoint(
     )
 
     # An already-triaged duplicate is returned as-is: re-running would double the cost and
-    # could produce a different verdict for the same input.
-    if duplicate and row.status not in ("pending", "failed"):
+    # could produce a different verdict for the same input. Shares the rule with ingest.py so
+    # the sync and async paths cannot disagree about what "already done" means.
+    if duplicate and row.status not in PENDING_STATUSES:
         return _to_record(row, duplicate=True)
 
     await repo.mark_triaging(session, row.id)
     try:
-        outcome: TriageOutcome = triage(payload.text, client=client, settings=settings)
+        outcome: TriageOutcome = await triage(payload.text, client=client, settings=settings)
     except Exception as exc:  # noqa: BLE001 - surfaced to the caller and recorded
         logger.exception("triage failed for exception %s", row.id)
         await repo.mark_failed(session, row.id, f"{type(exc).__name__}: {exc}")

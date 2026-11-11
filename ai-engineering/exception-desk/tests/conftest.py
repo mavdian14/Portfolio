@@ -25,8 +25,9 @@ os.environ["PROMPT_VERSION"] = "v1"
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
-from app.db.session import get_engine  # noqa: E402
+from app.db.session import get_engine, get_sessionmaker  # noqa: E402
 from app.main import create_app  # noqa: E402
 
 TABLES = "exceptions, exception_evidence, decisions, llm_calls, ingest_jobs"
@@ -57,6 +58,13 @@ async def clean_tables(migrated_schema: None) -> AsyncIterator[None]:
     yield
     async with engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE"))
+
+
+@pytest.fixture
+async def session(clean_tables: None) -> AsyncIterator[AsyncSession]:
+    """A raw session, for tests that exercise the data layer without going through HTTP."""
+    async with get_sessionmaker()() as s:
+        yield s
 
 
 @pytest.fixture

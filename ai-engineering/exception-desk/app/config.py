@@ -52,6 +52,17 @@ class Settings(BaseSettings):
     max_tool_rounds: int = 4
     repair_attempts: int = 2
 
+    # -- worker ------------------------------------------------------------
+    #: How many jobs one worker holds in flight. Concurrency is the point of the async
+    #: pipeline: while one job waits on the provider, the others make progress.
+    worker_concurrency: int = 4
+    #: How long to sleep when the queue is empty.
+    worker_poll_interval_s: float = 1.0
+    #: A job still `running` after this long was abandoned by a worker that died.
+    worker_stale_after_s: int = 300
+    #: Attempts before a job is failed for good, regardless of retryability.
+    job_max_attempts: int = 5
+
     # -- service -----------------------------------------------------------
     log_level: str = "INFO"
     demo_api_key: str = "change-me"

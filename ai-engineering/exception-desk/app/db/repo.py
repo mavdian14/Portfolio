@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -34,10 +34,13 @@ __all__ = [
     "finish_job",
     "get_by_hash",
     "get_exception",
+    "get_job",
     "list_exceptions",
     "mark_failed",
+    "mark_pending",
     "mark_triaging",
     "normalise",
+    "reclaim_stale_jobs",
     "requeue_job",
     "save_triage",
     "source_hash",
@@ -103,6 +106,18 @@ async def mark_triaging(session: AsyncSession, exception_id: uuid.UUID) -> None:
     if row is not None:
         row.status = "triaging"
         row.error = None
+        await session.commit()
+
+
+async def mark_pending(session: AsyncSession, exception_id: uuid.UUID) -> None:
+    """Return a record to the queue after its job was requeued.
+
+    Without this the record keeps saying ``triaging`` while nothing is triaging it, and
+    ``GET /exceptions?status=triaging`` reports work in progress that is not happening.
+    """
+    row = await session.get(ExceptionRow, exception_id)
+    if row is not None:
+        row.status = "pending"
         await session.commit()
 
 
@@ -274,11 +289,29 @@ async def cost_summary(session: AsyncSession, *, days: int = 7) -> list[dict[str
 
 
 # --------------------------------------------------------------------------------------
-# Queue (used from week 2)
+# Queue
 # --------------------------------------------------------------------------------------
 
 
 async def enqueue(session: AsyncSession, exception_id: uuid.UUID) -> uuid.UUID:
+    """Create a job for this exception, or return the id of an already-active one.
+
+    Safe to call repeatedly: the partial unique index ``uq_ingest_jobs_active_per_exception``
+    allows at most one queued-or-running job per exception, so a client retrying a POST cannot
+    enqueue a second triage and double the spend. The lookup below is an optimisation — the
+    database is what actually guarantees it.
+    """
+    existing = await session.scalar(
+        select(IngestJobRow.id)
+        .where(
+            IngestJobRow.exception_id == exception_id,
+            IngestJobRow.status.in_(("queued", "running")),
+        )
+        .limit(1)
+    )
+    if existing is not None:
+        return existing
+
     job = IngestJobRow(exception_id=exception_id, status="queued")
     session.add(job)
     await session.commit()
@@ -291,6 +324,10 @@ async def claim_next_job(session: AsyncSession, worker_id: str) -> IngestJobRow 
     ``FOR UPDATE SKIP LOCKED`` is the correct Postgres queue primitive: two workers cannot
     claim the same job, and a slow job never blocks a fast one. ``available_at`` is what
     makes backoff possible — without it a failing job spins in a hot loop.
+
+    ``attempts`` is incremented at claim time rather than on failure, so a worker killed
+    mid-job still burns an attempt. Otherwise a job that reliably crashes its worker would
+    retry forever.
     """
     subq = (
         select(IngestJobRow.id)
@@ -306,29 +343,46 @@ async def claim_next_job(session: AsyncSession, worker_id: str) -> IngestJobRow 
         return None
     job.status = "running"
     job.locked_by = worker_id
+    job.locked_at = datetime.now(UTC)
     job.attempts += 1
     await session.commit()
     return job
 
 
+async def get_job(session: AsyncSession, job_id: uuid.UUID) -> IngestJobRow | None:
+    return await session.get(IngestJobRow, job_id)
+
+
 async def requeue_job(
-    session: AsyncSession, job_id: uuid.UUID, error: str, max_attempts: int = 5
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    error: str,
+    *,
+    max_attempts: int = 5,
+    retryable: bool = True,
 ) -> str:
-    """Back the job off, or give up. Returns the resulting status."""
+    """Back the job off, or fail it for good. Returns the resulting status.
+
+    ``retryable=False`` fails immediately regardless of the attempt count. That distinction
+    matters: a 429 is worth retrying, a record the model could not produce after the repair
+    loop is not — retrying costs money to reproduce the same failure.
+    """
     job = await session.get(IngestJobRow, job_id)
     if job is None:
         return "missing"
     job.last_error = error[:2000]
-    if job.attempts >= max_attempts:
-        job.status = "failed"
-        await session.commit()
-        return "failed"
-    job.status = "queued"
     job.locked_by = None
-    # Exponential backoff, the same shape as the HTTP retry policy.
-    job.available_at = datetime.now(UTC) + timedelta(seconds=2**job.attempts)
+    job.locked_at = None
+
+    if not retryable or job.attempts >= max_attempts:
+        job.status = "failed"
+    else:
+        job.status = "queued"
+        # Exponential backoff, the same shape as the HTTP retry policy.
+        job.available_at = datetime.now(UTC) + timedelta(seconds=2**job.attempts)
+
     await session.commit()
-    return "queued"
+    return job.status
 
 
 async def finish_job(session: AsyncSession, job_id: uuid.UUID) -> None:
@@ -336,4 +390,37 @@ async def finish_job(session: AsyncSession, job_id: uuid.UUID) -> None:
     if job is not None:
         job.status = "done"
         job.locked_by = None
+        job.locked_at = None
         await session.commit()
+
+
+async def reclaim_stale_jobs(
+    session: AsyncSession, *, stale_after_s: int = 300
+) -> list[uuid.UUID]:
+    """Return jobs abandoned by a worker that died mid-run.
+
+    A worker killed between claiming and finishing leaves its row in ``running`` forever, and
+    the partial unique index means nothing can enqueue a replacement — the exception would be
+    stuck with no way forward. This is the recovery path, and it is why ``locked_at`` exists.
+
+    ``locked_at IS NULL`` is included so that rows written before this column existed (or by
+    an older worker) are not stranded.
+    """
+    cutoff = datetime.now(UTC) - timedelta(seconds=max(stale_after_s, 1))
+    stmt = (
+        update(IngestJobRow)
+        .where(
+            IngestJobRow.status == "running",
+            or_(IngestJobRow.locked_at.is_(None), IngestJobRow.locked_at < cutoff),
+        )
+        .values(
+            status="queued",
+            locked_by=None,
+            locked_at=None,
+            last_error="reclaimed: the worker holding this job did not finish in time",
+        )
+        .returning(IngestJobRow.id)
+    )
+    ids = list((await session.execute(stmt)).scalars().all())
+    await session.commit()
+    return ids

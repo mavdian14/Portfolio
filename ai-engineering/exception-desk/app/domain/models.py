@@ -127,7 +127,18 @@ class TriageRequest(BaseModel):
 
 
 class IngestResponse(BaseModel):
+    """What a client gets back from an async ingest: `202 Accepted`.
+
+    ``job_id`` is for correlation — logs, and matching this response to a worker's log line.
+    The observable state of the work is ``status`` on the exception itself, which
+    ``GET /exceptions/{id}`` already reports, so there is no separate job endpoint.
+    """
+
     exception_id: UUID
+    job_id: UUID | None = Field(
+        default=None,
+        description="Null when the exception was already triaged and no work was queued.",
+    )
     status: str
     duplicate: bool
 

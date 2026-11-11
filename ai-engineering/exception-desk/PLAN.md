@@ -4,8 +4,19 @@
 > validated, evidence-backed records with a recommended action — and nothing gets committed until a
 > human approves it.
 
-Status: **week 1 of 4** · Location: `ai-engineering/exception-desk/` (promote to a standalone repo once
+Status: **week 2 of 4** · Location: `ai-engineering/exception-desk/` (promote to a standalone repo once
 it has a green eval run, a Compose one-liner, and a live URL)
+
+| Week | Scope | State |
+| --- | --- | --- |
+| 1 | Domain + provider layers, migrations, `POST /triage` | ✅ done |
+| 2 | `POST /exceptions`, worker, `SKIP LOCKED`, backoff, recovery | ✅ done |
+| 3 | SSE stream, human decision endpoint, prompt versioning | ⏳ next |
+| 4 | Eval harness, deploy, UI, README story | ⏳ |
+
+Week 2 added one column and two indexes beyond this plan (`locked_at`, and a partial unique index
+enforcing one active job per exception). Both were driven by failure modes the plan did not name:
+a worker that dies holding a lock, and a client that retries a POST.
 
 ---
 
@@ -46,6 +57,10 @@ primitives in throwaway scripts, then built the service around them.*
 | Evals in CI against the mock provider | Evals against the live API | Live evals cost money on every push and fail on provider flakiness |
 | `FOR UPDATE SKIP LOCKED` for the queue | Application-level locking | Two workers cannot double-claim a job; a slow job never blocks a fast one |
 | Idempotent ingest via a hash of the normalised text | Dedupe by exact string | The same supplier email with a trailing newline must not create two exceptions |
+| One active job per exception, via a partial unique index | An application check before insert | A client retrying a POST cannot double the spend, and the guarantee survives a race |
+| `locked_at` plus a reclaim pass before every batch | Assume a claimed job always finishes | A worker killed mid-job would otherwise strand its record in `running` forever |
+| Terminal failures fail immediately; only transient ones retry | Retry everything up to the attempt limit | A schema the model could not satisfy after seeing the validator's own error is not going to satisfy it on a third paid attempt |
+| `triage()` is async | Wrap the sync pipeline in `to_thread` | The worker runs several jobs at once; a sync pipeline serialises them however many coroutines wrap it |
 
 ## 4. Architecture
 
@@ -211,8 +226,18 @@ CREATE TABLE ingest_jobs (
     attempts     INT  NOT NULL DEFAULT 0,
     available_at TIMESTAMPTZ NOT NULL DEFAULT now(),   -- backoff lands here
     locked_by    TEXT,
+    locked_at    TIMESTAMPTZ,                          -- when the claimer took it
     last_error   TEXT
 );
+
+-- At most one active job per exception. The application check in repo.enqueue is an
+-- optimisation; this index is the guarantee, and it survives a client retrying a POST.
+CREATE UNIQUE INDEX uq_ingest_jobs_active_per_exception
+    ON ingest_jobs (exception_id) WHERE status IN ('queued', 'running');
+
+-- The reclaim query is `status='running' AND locked_at < cutoff`, so the index is partial.
+CREATE INDEX ix_ingest_jobs_running
+    ON ingest_jobs (locked_at) WHERE status = 'running';
 ```
 
 `llm_calls` is deliberately decoupled from `exceptions`: a triage attempt can fail entirely and still
@@ -281,6 +306,8 @@ POST /exceptions
   → 202
 
 worker  (separate process, same image)
+  → reclaim first: any job still `running` past WORKER_STALE_AFTER_S was abandoned by a
+    worker that died, and the partial unique index means nothing can enqueue a replacement
   → claim ONE job atomically:
       UPDATE ingest_jobs SET status='running', locked_by=$host
       WHERE id = (SELECT id FROM ingest_jobs
@@ -295,8 +322,11 @@ worker  (separate process, same image)
         validate  on ValidationError → repair loop (max 2 re-asks)
   → write exception_evidence + llm_calls rows
   → exceptions.status = 'needs_review'
-  → on failure: attempts++, available_at = now() + 2^attempts seconds, status='queued'
-                (give up at 5 attempts → status='failed', error=…)
+  → on a RETRYABLE failure (429/5xx/transport):
+        attempts++, available_at = now() + 2^attempts, status='queued',
+        record back to 'pending' so the queue stops reporting work in progress
+  → on a TERMINAL failure (4xx, or the schema unsatisfied after the repair loop):
+        status='failed' immediately, and the record fails too with the error stored
 ```
 
 `available_at` is what makes backoff possible. Without it a failing job spins in a hot loop and burns

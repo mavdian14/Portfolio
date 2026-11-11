@@ -11,6 +11,7 @@ agrees with the evidence it gathered. A mock that contradicts itself teaches you
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any
@@ -85,12 +86,21 @@ class MockClient(BaseClient):
         real_provider: str = "anthropic",
         interrupt_after: int | None = None,
         fail_first_n_calls: int = 0,
+        async_delay_s: float = 0.0,
     ) -> None:
         self.model = model or "mock"
         self.real_provider = real_provider
         self.interrupt_after = interrupt_after
         self.fail_first_n_calls = fail_first_n_calls
+        #: Simulated latency on the async path. Zero by default so tests are fast; set it to
+        #: make concurrency observable — without a real await, `asyncio.gather` over several
+        #: jobs would complete in one tick and prove nothing.
+        self.async_delay_s = async_delay_s
         self._call_count = 0
+
+    async def _yield_for_latency(self) -> None:
+        if self.async_delay_s > 0:
+            await asyncio.sleep(self.async_delay_s)
 
     # -- helpers -----------------------------------------------------------------------
     def _maybe_fail(self) -> None:
@@ -311,12 +321,15 @@ class MockClient(BaseClient):
 
     # -- async -------------------------------------------------------------------------
     async def astructured(self, prompt: str, schema: type[ModelT], **kw: Any) -> StructuredResult:
+        await self._yield_for_latency()
         return self.structured(prompt, schema, **kw)
 
     async def atool_loop(self, prompt: str, **kwargs: Any) -> ToolLoopResult:
+        await self._yield_for_latency()
         return self.tool_loop(prompt, **kwargs)
 
     async def astream_text(self, prompt: str, **kw: Any) -> str:
+        await self._yield_for_latency()
         return self.stream_text(prompt, **kw)
 
     def list_models(self, limit: int = 40) -> list[str]:

@@ -151,7 +151,11 @@ class LlmCallRow(Base):
 
 
 class IngestJobRow(Base):
-    """The queue. ``available_at`` is what makes backoff possible."""
+    """The queue.
+
+    ``available_at`` is what makes backoff possible. ``locked_at`` is what makes recovery
+    possible: without it, a job claimed by a worker that then died stays `running` forever.
+    """
 
     __tablename__ = "ingest_jobs"
 
@@ -169,4 +173,7 @@ class IngestJobRow(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
     locked_by: Mapped[str | None] = mapped_column(Text)
+    #: When the claiming worker took this job. A row still `running` long after this was
+    #: abandoned by a worker that died, and has to be reclaimed.
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)

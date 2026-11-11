@@ -15,6 +15,7 @@ Sequence:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import Sequence
@@ -29,6 +30,16 @@ from app.domain.models import InventoryException
 from app.domain.prompt_loader import render
 from app.llm.base import BaseClient, LlmCallRecord, ToolCallRecord
 from app.pipeline.cost import cost_usd
+
+
+class TerminalTriageError(RuntimeError):
+    """The pipeline could not produce a usable record, and running it again will not help.
+
+    Distinct from a provider failure on purpose. A 429 or a dropped connection is worth
+    retrying; a schema the model failed to satisfy *after* being handed the validator's own
+    error text is not — a second attempt costs money to reproduce the same failure. The worker
+    uses this distinction to decide between backoff and giving up.
+    """
 
 
 @dataclass
@@ -67,14 +78,19 @@ def _evidence_block(evidence: Sequence[ToolCallRecord]) -> str:
     return "\n".join(lines)
 
 
-def triage(
+async def triage(
     text: str,
     *,
     client: BaseClient,
     settings: Settings | None = None,
     tools: Sequence[ToolSpec] | None = None,
 ) -> TriageOutcome:
-    """Triage one inbound message. Blocking; call it from the worker or from evals."""
+    """Triage one inbound message.
+
+    Async because both calls in it are network I/O — the textbook case. It also matters
+    practically: the worker runs several jobs concurrently, and a synchronous pipeline would
+    serialise them no matter how many coroutines it was wrapped in.
+    """
     settings = settings or get_settings()
     version = settings.prompt_version
     started = time.perf_counter()
@@ -83,7 +99,7 @@ def triage(
     calls: list[LlmCallRecord] = []
 
     # ---- 1. gather evidence -----------------------------------------------------------
-    loop = client.tool_loop(
+    loop = await client.atool_loop(
         text,
         tools=tools or TOOLS,
         system=system,
@@ -118,7 +134,7 @@ def triage(
     repairs = 0
     for attempt in range(settings.repair_attempts + 1):
         try:
-            result = client.structured(
+            result = await client.astructured(
                 prompt,
                 InventoryException,
                 system=system,
@@ -165,7 +181,10 @@ def triage(
         except ValidationError as exc:
             repairs += 1
             if attempt >= settings.repair_attempts:
-                raise
+                raise TerminalTriageError(
+                    f"the model could not satisfy the schema after {repairs} repair attempt(s); "
+                    f"last error: {exc.errors()[0]['msg']}"
+                ) from exc
             # Feed the validator's own message back: it names the field and the allowed
             # values, which is far more useful to the model than a restated instruction.
             prompt = render("repair", version, validation_error=str(exc), message=text)
@@ -186,3 +205,18 @@ def triage(
         repair_attempts=repairs,
         stop_reason=loop.stop_reason,
     )
+
+
+def triage_sync(
+    text: str,
+    *,
+    client: BaseClient,
+    settings: Settings | None = None,
+    tools: Sequence[ToolSpec] | None = None,
+) -> TriageOutcome:
+    """Blocking wrapper for scripts, evals and one-off checks.
+
+    Not usable from inside a running event loop — the API and the worker call ``triage``
+    directly, which is the whole point of it being async.
+    """
+    return asyncio.run(triage(text, client=client, settings=settings, tools=tools))
