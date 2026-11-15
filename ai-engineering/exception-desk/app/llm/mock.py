@@ -87,11 +87,16 @@ class MockClient(BaseClient):
         interrupt_after: int | None = None,
         fail_first_n_calls: int = 0,
         async_delay_s: float = 0.0,
+        prompt_version: str = "v1",
     ) -> None:
         self.model = model or "mock"
         self.real_provider = real_provider
         self.interrupt_after = interrupt_after
         self.fail_first_n_calls = fail_first_n_calls
+        #: The mock stands in for a model that was prompted a particular way, so it has to be
+        #: told which way. ``make_client`` passes ``settings.prompt_version``, which keeps it
+        #: in step with the prompt the pipeline actually rendered.
+        self.prompt_version = prompt_version
         #: Simulated latency on the async path. Zero by default so tests are fast; set it to
         #: make concurrency observable — without a real await, `asyncio.gather` over several
         #: jobs would complete in one tick and prove nothing.
@@ -135,12 +140,16 @@ class MockClient(BaseClient):
         max_tokens: int = 1024,
     ) -> StructuredResult:
         self._maybe_fail()
-        parsed = mock_parse(schema, prompt)
+        parsed = mock_parse(schema, prompt, version=self.prompt_version)
         return StructuredResult(
             parsed=parsed,
             raw_text=parsed.model_dump_json(),
             usage=self._mock_usage(prompt),
-            payload={"model": self.model, "schema": schema.__name__},
+            payload={
+                "model": self.model,
+                "schema": schema.__name__,
+                "prompt_version": self.prompt_version,
+            },
         )
 
     def structured_raw(
@@ -384,14 +393,36 @@ def _says_no_action(text: str) -> bool:
     return "no action" in low or "no concerns" in low or "look fine" in low
 
 
-def _severity_for(sku: str, text: str) -> Severity:
-    """Business impact, derived from the inventory record rather than the wording."""
+def _severity_for(sku: str, text: str, version: str = "v1") -> Severity:
+    """Business impact.
+
+    Two calibrations, because that is precisely what prompt v2 changed:
+
+    * **v1** treats alarming phrasing as a severity signal. "zero on hand" promotes a record to
+      critical whatever the numbers say — which is brittle, because the phrase describes how
+      the sender feels, not how much cover exists.
+    * **v2** derives severity from the tool results, and requires *both* a coverage problem and
+      material slippage for critical.
+
+    The mock implements both because it is standing in for a model prompted one way or the
+    other. A live model reads the rule out of the prompt; the mock has to be told which prompt
+    it was given.
+    """
     rec = INVENTORY.get(sku)
     if not rec:
         # Nothing to read impact from. Use the one signal the message does carry.
         return "low" if _says_no_action(text) else "medium"
+
     cover = cover_weeks(rec)
     slip = rec["actual_lt_p90_days"] - rec["quoted_lt_days"]
+
+    if version == "v2":
+        if cover <= 0.5 and slip >= 20:
+            return "critical"
+        if cover < 2.0 or slip >= 20:
+            return "high"
+        return "low" if _says_no_action(text) else "medium"
+
     low = text.lower()
     if cover <= 0.5 or "break the install" in low or "zero on hand" in low:
         return "critical"
@@ -415,7 +446,7 @@ def _root_cause_for(sku: str, text: str) -> RootCause:
     return "supplier_delay" if slip > 0 else "none"
 
 
-def mock_parse(schema: type[ModelT], prompt: str) -> Any:
+def mock_parse(schema: type[ModelT], prompt: str, version: str = "v1") -> Any:
     """Deterministic, schema-valid answers so offline runs exercise real validation.
 
     Values are read from the domain records, so the extraction agrees with the tool
@@ -431,7 +462,7 @@ def mock_parse(schema: type[ModelT], prompt: str) -> Any:
         rec = INVENTORY.get(sku, {})
         slip = (rec.get("actual_lt_p90_days", 0) - rec.get("quoted_lt_days", 0)) if rec else 0
         cover = cover_weeks(rec) if rec else 0.0
-        severity = _severity_for(sku, message)
+        severity = _severity_for(sku, message, version)
         if known:
             root = _root_cause_for(sku, message)
         else:

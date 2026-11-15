@@ -5,142 +5,406 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>exception-desk</title>
 <!--
-  Week-1 placeholder: enough to exercise POST /triage from a browser.
-  The real triage-queue view (filters, approve/edit/reject, SSE progress) lands in week 4.
+  The clickable front end for the exception desk.
+
+  It exercises the whole loop the way a planner would: queue a message, watch the server push
+  status changes, read the verdict next to the tool results it rests on, then approve, edit or
+  reject. Nothing here decides anything — the model recommends and a human commits, and the
+  UI is where that handover happens.
 -->
 <style>
-  :root { --bg:#0f1115; --panel:#171a21; --line:#262b36; --text:#e6e9ef; --dim:#8b93a7;
-          --accent:#5b9dff; --crit:#ff6b6b; --high:#ffb454; --med:#5b9dff; --low:#5fd38d; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text);
-         font:15px/1.5 ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif; }
-  .wrap { max-width:960px; margin:0 auto; padding:32px 20px 64px; }
-  h1 { font-size:22px; margin:0 0 4px; }
-  .sub { color:var(--dim); margin:0 0 24px; font-size:13px; }
-  .row { display:flex; gap:12px; align-items:flex-start; }
-  textarea { flex:1; min-height:120px; background:var(--panel); color:var(--text);
-             border:1px solid var(--line); border-radius:8px; padding:12px; resize:vertical;
-             font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
-  button { background:var(--accent); color:#08111f; border:0; border-radius:8px;
-           padding:12px 18px; font-weight:600; cursor:pointer; }
-  button[disabled] { opacity:.5; cursor:progress; }
-  .samples { margin:12px 0 0; display:flex; gap:8px; flex-wrap:wrap; }
-  .samples button { background:var(--panel); color:var(--dim); border:1px solid var(--line);
-                    font-weight:400; padding:6px 10px; font-size:12px; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
-          padding:18px; margin-top:24px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; }
-  .k { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
-  .v { font-size:15px; margin-top:2px; word-break:break-word; }
-  .sev-critical { color:var(--crit); } .sev-high { color:var(--high); }
-  .sev-medium { color:var(--med); } .sev-low { color:var(--low); }
-  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
-  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
-  th { color:var(--dim); font-weight:500; font-size:11px; text-transform:uppercase; }
-  pre { background:#0b0d12; border:1px solid var(--line); border-radius:8px; padding:12px;
-        overflow:auto; font-size:12px; max-height:280px; }
-  .err { color:var(--crit); }
-  h2 { font-size:14px; margin:22px 0 6px; color:var(--dim); text-transform:uppercase;
-       letter-spacing:.05em; }
+  :root{
+    --bg:#0b0e13; --panel:#121722; --panel-2:#171d2b; --line:#232c3d;
+    --ink:#e6ebf5; --dim:#8b97ad; --faint:#5b6679;
+    --crit:#ff5c5c; --high:#ff9f43; --med:#ffd166; --low:#4ec9a0;
+    --accent:#6ea8fe; --ok:#4ec9a0; --purple:#b79dff;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;}
+  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+    padding:18px 24px;border-bottom:1px solid var(--line);background:var(--panel)}
+  h1{margin:0;font-size:17px;letter-spacing:.2px;font-weight:650}
+  h1 span{color:var(--faint);font-weight:400}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+  .chip{font:12px/1.4 var(--mono);color:var(--dim);background:var(--panel-2);
+    border:1px solid var(--line);border-radius:999px;padding:6px 11px}
+  .chip b{color:var(--ink);font-weight:600}
+  main{display:grid;grid-template-columns:minmax(330px,1fr) minmax(420px,1.3fr);
+    gap:18px;padding:18px 24px 48px;align-items:start}
+  @media(max-width:920px){main{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .panel > h2{margin:0;padding:12px 16px;font-size:11.5px;text-transform:uppercase;
+    letter-spacing:.9px;color:var(--dim);border-bottom:1px solid var(--line);font-weight:600}
+  .body{padding:16px}
+  textarea,input[type=text]{width:100%;background:var(--panel-2);color:var(--ink);
+    border:1px solid var(--line);border-radius:9px;padding:11px 12px;outline:none;
+    font:14px/1.55 ui-sans-serif,system-ui}
+  textarea{min-height:130px;resize:vertical}
+  textarea:focus,input[type=text]:focus{border-color:var(--accent)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  button{font:13px/1 ui-sans-serif,system-ui;font-weight:550;cursor:pointer;
+    border-radius:8px;padding:10px 15px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--ink);transition:.13s}
+  button:hover:not(:disabled){border-color:var(--faint);background:#1d2434}
+  button:disabled{opacity:.42;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#08101f}
+  button.primary:hover:not(:disabled){background:#86b6ff;border-color:#86b6ff}
+  button.danger{border-color:#5c2b2b;color:#ff9d9d}
+  button.danger:hover:not(:disabled){background:#2a1717;border-color:#8a3b3b}
+  .samples{display:flex;flex-direction:column;gap:6px;margin-top:14px}
+  .sample{text-align:left;font-size:12.5px;color:var(--dim);padding:9px 11px;
+    line-height:1.45;background:transparent}
+  .sample:hover{color:var(--ink)}
+  .hint{margin-top:12px;padding:10px 12px;border-radius:9px;font-size:12.5px;
+    background:#141b2a;border:1px solid var(--line);color:var(--dim)}
+  code{font:12px var(--mono);color:var(--accent);background:#0e1421;
+    padding:2px 6px;border-radius:5px}
+  .hint.live{border-color:#2c4a44;background:#0f1d1a;color:#8fd8c4}
+  .hint.wait{border-color:#4a4326;background:#1d1a0f;color:#e3cd86}
+
+  .tl{display:flex;flex-direction:column}
+  .ev{display:flex;gap:11px;align-items:flex-start;padding:9px 0;
+    border-bottom:1px dashed var(--line);font-size:13.5px}
+  .ev:last-child{border-bottom:0}
+  .ev time{font:11.5px var(--mono);color:var(--faint);flex:0 0 60px;padding-top:2px}
+  .ev .what{flex:1;word-break:break-word}
+  .pill{display:inline-block;font:11.5px/1 var(--mono);padding:5px 9px;border-radius:6px;
+    border:1px solid var(--line);background:var(--panel-2);color:var(--dim)}
+  .pill.pending{color:#e3cd86;border-color:#4a4326}
+  .pill.triaging{color:var(--accent);border-color:#2a3d5e}
+  .pill.needs_review{color:var(--ok);border-color:#2c4a44}
+  .pill.decided{color:var(--purple);border-color:#3c2f5e}
+  .pill.failed{color:var(--crit);border-color:#5c2b2b}
+  .empty{color:var(--faint);font-size:13px}
+
+  .verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));
+    gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;
+    overflow:hidden;margin-bottom:16px}
+  .cell{background:var(--panel-2);padding:11px 13px}
+  .cell dt{font:10.5px/1 var(--mono);color:var(--faint);text-transform:uppercase;
+    letter-spacing:.7px;margin-bottom:6px}
+  .cell dd{margin:0;font-size:15px;font-weight:600}
+  .sev-critical{color:var(--crit)} .sev-high{color:var(--high)}
+  .sev-medium{color:var(--med)} .sev-low{color:var(--low)}
+  .kv{display:flex;gap:10px;font-size:13.5px;padding:5px 0}
+  .kv b{flex:0 0 132px;color:var(--faint);font-weight:500}
+  .ev-item{border:1px solid var(--line);border-radius:9px;margin-bottom:8px;overflow:hidden}
+  .ev-head{display:flex;gap:9px;align-items:center;padding:8px 11px;
+    background:var(--panel-2);font:12.5px var(--mono)}
+  .ev-head .n{color:var(--faint)}
+  .ev-head .tool{color:var(--accent)}
+  .ev-head .err{color:var(--crit);margin-left:auto}
+  .ev-head .okm{margin-left:auto;color:var(--ok)}
+  pre{margin:0;padding:10px 12px;font:11.5px/1.5 var(--mono);color:var(--dim);
+    background:#0e1421;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+  .prov{display:flex;gap:14px;flex-wrap:wrap;font:12px var(--mono);color:var(--dim);
+    padding:11px 12px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px}
+  .prov b{color:var(--ink);font-weight:600}
+  .result{margin-top:12px;border:1px solid #2c4a44;border-radius:9px;overflow:hidden}
+  .result.bad{border-color:#5c2b2b}
+  .result > .rh{padding:9px 12px;background:#0f1d1a;font:12.5px var(--mono);color:#8fd8c4}
+  .result.bad > .rh{background:#1d1010;color:#ff9d9d}
+  .decided-note{padding:11px 13px;border-radius:9px;background:#160f26;
+    border:1px solid #3c2f5e;font-size:13.5px;margin-bottom:12px}
+  .decided-note b{color:var(--purple)}
+  .err{padding:11px 13px;border-radius:9px;background:#1d1010;border:1px solid #5c2b2b;
+    color:#ff9d9d;font-size:13px}
+  .lbl{font:10.5px/1 var(--mono);color:var(--faint);text-transform:uppercase;
+    letter-spacing:.8px;margin:14px 0 7px}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>exception-desk</h1>
-  <p class="sub">Paste an inbound supplier email or planner note. The service gathers evidence
-     with tools, then extracts a validated record. Nothing is committed — a human decides.</p>
-
-  <div class="row">
-    <textarea id="text">Following up on PO-88411 for the M 4K25 RGB (CHR-M4K25-RGB) — our production line is fully committed through December, so we cannot confirm the Nov 14 date. We can offer Dec 2 at the earliest.</textarea>
-    <button id="go">Triage</button>
+<header>
+  <h1>exception-desk <span>· supply-chain exception triage</span></h1>
+  <div class="chips">
+    <span class="chip" id="chip-provider">provider …</span>
+    <span class="chip" id="chip-prompts">prompts …</span>
   </div>
-  <div class="samples" id="samples"></div>
+</header>
 
-  <div id="out"></div>
-</div>
+<main>
+  <section class="panel">
+    <h2>1 · an inbound message</h2>
+    <div class="body">
+      <textarea id="msg" spellcheck="false">Following up on PO-88411 for the M 4K25 RGB (CHR-M4K25-RGB) — our production line is fully committed through December, so we cannot confirm the Nov 14 date. We can offer Dec 2 at the earliest.</textarea>
+      <div class="row">
+        <button class="primary" id="queue">Queue it</button>
+        <button id="clear">Clear</button>
+      </div>
+      <div class="samples" id="samples"></div>
+      <div class="hint">
+        The API returns <code>202</code> and stops. Triage happens in a
+        <b>separate worker process</b> — that is the design, not a missing piece. A message
+        already in the queue is recognised by hash and not queued twice.
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>2 · live progress · server-sent events</h2>
+    <div class="body">
+      <div class="hint" id="stream-hint">
+        Queue a message to open a stream. Nothing is polled from the browser — the server
+        pushes a frame each time the record changes.
+      </div>
+      <div class="tl" id="timeline"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="record-panel" style="display:none">
+    <h2>3 · the triage, and the evidence behind it</h2>
+    <div class="body" id="record"></div>
+  </section>
+
+  <section class="panel" id="decision-panel" style="display:none">
+    <h2>4 · the human decision</h2>
+    <div class="body" id="decision"></div>
+  </section>
+</main>
 
 <script>
-const SAMPLES = [
-  "The 2.00-3.55:1 long-throw lens is a mess this month. Demand came in nearly double forecast for the quarter and we have 5 on hand against 11 allocated.",
-  "Control board PCB-CTRL-M4K is at zero on hand with 4 allocated to service jobs. Vektor has quoted 90 days and we are seeing 152 days actual.",
-  "Invoice INV-20931 for the SPR-FILT-GS filter kits was issued at the wrong unit price. Please confirm the corrected amount.",
-  "We are seeing a shortage of the 0.95\" DMD chip across the industry. Please expect lead times on the long-throw lens family (LNS-200-355) to extend by 3-4 weeks."
-];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const clock = () => new Date().toLocaleTimeString('en-GB', { hour12: false });
 
-const out = document.getElementById('out');
-const go = document.getElementById('go');
-const ta = document.getElementById('text');
-const samples = document.getElementById('samples');
-
-SAMPLES.forEach(s => {
-  const b = document.createElement('button');
-  b.textContent = s.slice(0, 42) + '…';
-  b.onclick = () => { ta.value = s; };
-  samples.appendChild(b);
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const text = await r.text();
+  let body;
+  try { body = JSON.parse(text); } catch { body = { detail: text }; }
+  return { ok: r.ok, status: r.status, body };
+}
+const post = (path, body, headers) => api(path, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', ...(headers || {}) },
+  body: JSON.stringify(body),
 });
 
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const SAMPLES = [
+  "Control board PCB-CTRL-M4K is at zero on hand with 4 allocated to service jobs. Vektor has quoted 90 days and we are seeing 152 days actual.",
+  "The 2.00-3.55:1 long-throw lens is a mess this month. Demand came in nearly double forecast for the quarter and we have 5 on hand against 11 allocated.",
+  "Status pass, nothing to report. The CHR-GS25-HS and the CHR-M4K25-RGB both look fine against plan and I have no concerns this week.",
+  "Our quality team found a scratch on a couple of units but I do not have the part number to hand — can you tell me which ones to hold?",
+];
 
-go.onclick = async () => {
-  go.disabled = true; go.textContent = 'Triaging…';
-  out.innerHTML = '<div class="card">Running the tool loop, then extracting…</div>';
-  try {
-    const r = await fetch('/triage', {
-      method: 'POST',
-      headers: {'content-type': 'application/json'},
-      body: JSON.stringify({text: ta.value})
-    });
-    const body = await r.json();
-    if (!r.ok) throw new Error(body.detail || r.statusText);
-    out.innerHTML = render(body);
-  } catch (e) {
-    out.innerHTML = `<div class="card err">${esc(e.message)}</div>`;
-  } finally {
-    go.disabled = false; go.textContent = 'Triage';
+let stream = null, currentId = null, currentRecord = null;
+
+/* ── startup: show what this process is configured to do ───────────────── */
+(async () => {
+  const { body: ready } = await api('/readyz');
+  const c = (ready && ready.checks) || {};
+  $('chip-provider').innerHTML = `provider <b>${esc(c.provider)}</b> · model <b>${esc(c.model)}</b>`;
+  const { body: p } = await api('/prompts');
+  if (p && p.available) {
+    const parts = Object.entries(p.available).map(([n, v]) => `${n} ${v.join('/')}`).join(' · ');
+    $('chip-prompts').innerHTML = `worker renders <b>${esc(p.active)}</b> — ${esc(parts)}`;
   }
+})();
+
+$('samples').innerHTML = SAMPLES.map((s, i) =>
+  `<button class="sample" data-i="${i}">${esc(s.slice(0, 104))}${s.length > 104 ? '…' : ''}</button>`
+).join('');
+$('samples').onclick = (e) => {
+  const b = e.target.closest('.sample');
+  if (b) $('msg').value = SAMPLES[+b.dataset.i];
 };
+$('clear').onclick = () => { $('msg').value = ''; $('msg').focus(); };
 
-function render(d) {
-  const p = d.provenance || {};
-  const ev = (d.evidence || []).map(e => `<tr>
-      <td>${e.round}</td><td>${esc(e.tool)}</td>
-      <td>${e.is_error ? '<span class="err">error</span>' : 'ok'}</td>
-      <td>${esc(JSON.stringify(e.result).slice(0, 120))}</td></tr>`).join('');
-  return `
-  <div class="card">
-    <div class="grid">
-      <div><div class="k">SKU</div><div class="v">${esc(d.sku)}</div></div>
-      <div><div class="k">Severity</div><div class="v sev-${esc(d.severity)}">${esc(d.severity)}</div></div>
-      <div><div class="k">Root cause</div><div class="v">${esc(d.root_cause)}</div></div>
-      <div><div class="k">Weeks of cover</div><div class="v">${d.weeks_of_cover ?? '—'}</div></div>
-      <div><div class="k">Lead-time slippage</div><div class="v">${d.lead_time_impact_days ?? '—'} d</div></div>
-      <div><div class="k">Confidence</div><div class="v">${d.confidence ?? '—'}</div></div>
-      <div><div class="k">Escalate</div><div class="v">${d.requires_escalation ? 'yes' : 'no'}</div></div>
-      <div><div class="k">Status</div><div class="v">${esc(d.status)}${d.duplicate ? ' (duplicate)' : ''}</div></div>
-    </div>
-
-    <h2>Recommended action</h2>
-    <div>${esc(d.recommended_action)}</div>
-    <h2>Rationale</h2>
-    <div>${esc(d.rationale)}</div>
-
-    <h2>Evidence — what the model actually checked</h2>
-    <table><thead><tr><th>Round</th><th>Tool</th><th>Status</th><th>Result</th></tr></thead>
-      <tbody>${ev || '<tr><td colspan="4">none</td></tr>'}</tbody></table>
-
-    <h2>Provenance</h2>
-    <div class="grid">
-      <div><div class="k">Prompt</div><div class="v">${esc(p.prompt_version)}</div></div>
-      <div><div class="k">Provider</div><div class="v">${esc(p.provider)}</div></div>
-      <div><div class="k">Model</div><div class="v">${esc(p.model)}</div></div>
-      <div><div class="k">Calls</div><div class="v">${p.llm_calls ?? '—'}</div></div>
-      <div><div class="k">Tokens in/out</div><div class="v">${p.input_tokens ?? 0} / ${p.output_tokens ?? 0}</div></div>
-      <div><div class="k">Cost</div><div class="v">$${p.cost_usd ?? '0'}</div></div>
-    </div>
-    <details style="margin-top:14px"><summary class="k" style="cursor:pointer">raw response</summary>
-      <pre>${esc(JSON.stringify(d, null, 2))}</pre></details>
-  </div>`;
+/* ── the stream ───────────────────────────────────────────────────────── */
+function say(html) {
+  const el = document.createElement('div');
+  el.className = 'ev';
+  el.innerHTML = `<time>${clock()}</time><div class="what">${html}</div>`;
+  $('timeline').appendChild(el);
+  return el;
 }
+const closeStream = () => { if (stream) { stream.close(); stream = null; } };
+
+async function queue() {
+  const text = $('msg').value.trim();
+  if (!text) return;
+  closeStream();
+  $('timeline').innerHTML = '';
+  $('record-panel').style.display = 'none';
+  $('decision-panel').style.display = 'none';
+  currentRecord = null;
+
+  const { status, body } = await post('/exceptions', { text });
+  if (status !== 202) {
+    say(`<span class="err">${status}: ${esc(body.detail)}</span>`);
+    return;
+  }
+  currentId = body.exception_id;
+
+  say(`queued as <code>${esc(currentId.slice(0, 8))}</code>` +
+      (body.duplicate ? ' — <b>already seen</b>, so no new job was created' : ''));
+
+  $('stream-hint').className = 'hint live';
+  if (body.job_id) {
+    $('stream-hint').className = 'hint wait';
+    $('stream-hint').innerHTML =
+      'Waiting for a worker to claim it. Nothing is triaging yet — in another shell: ' +
+      '<code>python -m app.pipeline.worker --once</code>';
+  } else {
+    $('stream-hint').innerHTML =
+      `Stream open on <code>${esc(currentId.slice(0, 8))}</code> — watching for changes.`;
+  }
+  openStream(currentId);
+}
+
+function openStream(id) {
+  stream = new EventSource(`/exceptions/${id}/stream`);
+  stream.addEventListener('status', (e) => {
+    const d = JSON.parse(e.data);
+    say(`status → <span class="pill ${esc(d.status)}">${esc(d.status)}</span>` +
+        (d.sku ? ` <span style="color:var(--faint)">· ${esc(d.sku)}</span>` : ''));
+  });
+  stream.addEventListener('record', (e) => {
+    currentRecord = JSON.parse(e.data);
+    renderRecord(currentRecord);
+  });
+  stream.addEventListener('done', () => {
+    say('stream closed — the record is terminal');
+    closeStream();
+    $('stream-hint').className = 'hint';
+    $('stream-hint').textContent = 'Stream closed. Queue another message to open a new one.';
+  });
+  stream.addEventListener('timeout', (e) => {
+    const d = JSON.parse(e.data);
+    say(`still <b>${esc(d.status)}</b> after ${esc(d.waited_s)}s — no worker has claimed it`);
+    closeStream();
+    $('stream-hint').className = 'hint wait';
+    $('stream-hint').innerHTML =
+      'Timed out waiting. Run <code>python -m app.pipeline.worker --once</code>, then queue again.';
+  });
+  stream.addEventListener('error', () => closeStream());
+}
+
+/* ── rendering ────────────────────────────────────────────────────────── */
+function renderRecord(r) {
+  const p = r.provenance || {};
+  // A float that happens to be whole stringifies to "0" in JS, which reads like a missing
+  // value next to the other figures.
+  const cover = r.weeks_of_cover == null ? '—' : Number(r.weeks_of_cover).toFixed(1);
+  $('record-panel').style.display = '';
+  $('record').innerHTML = `
+    <dl class="verdict">
+      <div class="cell"><dt>severity</dt><dd class="sev-${esc(r.severity)}">${esc(r.severity)}</dd></div>
+      <div class="cell"><dt>root cause</dt><dd>${esc(r.root_cause)}</dd></div>
+      <div class="cell"><dt>weeks cover</dt><dd>${esc(cover)}</dd></div>
+      <div class="cell"><dt>slippage</dt><dd>${esc(r.lead_time_impact_days)}d</dd></div>
+      <div class="cell"><dt>confidence</dt><dd>${esc(r.confidence)}</dd></div>
+      <div class="cell"><dt>escalate</dt><dd>${r.requires_escalation ? 'yes' : 'no'}</dd></div>
+    </dl>
+    <div class="kv"><b>SKU</b><span>${esc(r.sku)}</span></div>
+    <div class="kv"><b>recommended</b><span>${esc(r.recommended_action)}</span></div>
+    <div class="kv"><b>rationale</b><span>${esc(r.rationale)}</span></div>
+    <div class="lbl">provenance</div>
+    <div class="prov">
+      <span>prompt <b>${esc(p.prompt_version)}</b></span>
+      <span>provider <b>${esc(p.provider)}</b></span>
+      <span>model <b>${esc(p.model)}</b></span>
+      <span>calls <b>${esc(p.llm_calls)}</b></span>
+      <span>tokens <b>${esc(p.input_tokens)}→${esc(p.output_tokens)}</b></span>
+      <span>cost <b>$${esc(p.cost_usd)}</b></span>
+      <span>latency <b>${esc(p.latency_ms)}ms</b></span>
+      <span>retries <b>${esc(p.retries)}</b></span>
+    </div>
+    <div class="lbl">evidence — ${(r.evidence || []).length} tool results the verdict rests on</div>
+    ${(r.evidence || []).map((e) => `
+      <div class="ev-item">
+        <div class="ev-head">
+          <span class="n">#${e.round}</span>
+          <span class="tool">${esc(e.tool)}</span>
+          <span style="color:var(--faint)">${esc(JSON.stringify(e.arguments))}</span>
+          <span class="${e.is_error ? 'err' : 'okm'}">${e.is_error ? 'error' : 'ok'}</span>
+        </div>
+        <pre>${esc(JSON.stringify(e.result, null, 1))}</pre>
+      </div>`).join('')}`;
+  renderDecision(r);
+}
+
+function renderDecision(r) {
+  $('decision-panel').style.display = '';
+
+  if (r.decision) {
+    const d = r.decision, ex = d.executed;
+    $('decision').innerHTML = `
+      <div class="decided-note">
+        <b>${esc(d.outcome)}</b> by ${esc(d.decided_by)} ·
+        ${new Date(d.decided_at).toLocaleString()}
+        ${d.note ? `<div style="color:var(--dim);margin-top:5px">“${esc(d.note)}”</div>` : ''}
+      </div>
+      <div class="kv"><b>committed action</b><span>${esc(d.final_action)}</span></div>
+      ${ex ? `
+        <div class="result ${ex.ok ? '' : 'bad'}">
+          <div class="rh">${ex.ok ? 'executed' : 'execution refused'} · ${esc(ex.tool)}</div>
+          <pre>${esc(JSON.stringify(ex.result, null, 1))}</pre>
+        </div>`
+      : `<div class="hint" style="margin-top:12px">A rejection executes nothing — no tool was called.</div>`}
+      <div class="hint" style="margin-top:12px">
+        One decision per record. A second attempt is a <code>409</code> rather than an
+        overwrite — silently replacing an audit record would defeat the point of having one.
+      </div>`;
+    return;
+  }
+
+  $('decision').innerHTML = `
+    <div style="font-size:13.5px;color:var(--dim)">
+      The model recommends; you commit. Change the text and the service records
+      <code>edited</code> instead of <code>approved</code>.
+    </div>
+    <div class="lbl">the action to commit</div>
+    <textarea id="action" style="min-height:84px">${esc(r.recommended_action)}</textarea>
+    <div class="lbl">note for the audit trail (optional)</div>
+    <input type="text" id="note" placeholder="why you decided this">
+    <div class="row">
+      <button class="primary" id="approve">Approve &amp; execute</button>
+      <button class="danger" id="reject">Reject — execute nothing</button>
+    </div>
+    <div class="hint" style="margin-top:12px">
+      Approving runs the action through the <b>domain tool layer</b>, and the tool's result —
+      including a refusal — is written into the decision row. That is what makes it auditable.
+    </div>`;
+
+  $('approve').onclick = () => decide(
+    $('action').value.trim() === r.recommended_action ? 'approved' : 'edited'
+  );
+  $('reject').onclick = () => decide('rejected');
+}
+
+async function decide(outcome) {
+  const action = outcome === 'rejected'
+    ? 'no action — rejected at review'
+    : $('action').value.trim();
+  const note = $('note').value.trim() || null;
+
+  $('approve') && ($('approve').disabled = true);
+  $('reject') && ($('reject').disabled = true);
+
+  const { status, body } = await post(
+    `/exceptions/${currentId}/decision`,
+    { outcome, final_action: action, note },
+    { 'X-Reviewer': 'demo-reviewer' }
+  );
+
+  if (status !== 200) {
+    $('decision').insertAdjacentHTML('beforeend',
+      `<div class="err" style="margin-top:12px">${status}: ${esc(body.detail)}</div>`);
+    return;
+  }
+  say(`decided <b>${esc(body.outcome)}</b> — executed ` +
+      `${esc(body.executed ? body.executed.tool : 'nothing')}`);
+  renderDecision({ ...currentRecord, decision: body });
+}
+
+$('queue').onclick = queue;
+$('msg').addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') queue();
+});
 </script>
 </body>
 </html>

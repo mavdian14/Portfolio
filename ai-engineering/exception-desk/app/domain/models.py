@@ -45,6 +45,7 @@ MessageCategory = Literal[
     "general",
 ]
 SourceKind = Literal["supplier_email", "planner_note", "po_ack", "unknown"]
+DecisionOutcome = Literal["approved", "edited", "rejected"]
 
 # --------------------------------------------------------------------------------------
 # Extraction targets
@@ -143,6 +144,44 @@ class IngestResponse(BaseModel):
     duplicate: bool
 
 
+class DecisionRequest(BaseModel):
+    """A human's verdict on a recommendation.
+
+    ``approved`` and ``edited`` both execute ``final_action`` through the domain tool layer —
+    the difference is only whether the human changed the wording first. ``rejected`` executes
+    nothing, because the point of a rejection is that no action is taken.
+    """
+
+    outcome: DecisionOutcome
+    final_action: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="The action to commit. Equals the recommendation when approving.",
+    )
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class ExecutedActionOut(BaseModel):
+    """What the approval actually did, including a refusal."""
+
+    tool: str
+    ok: bool
+    result: dict[str, Any]
+
+
+class DecisionOut(BaseModel):
+    exception_id: UUID
+    status: str
+    decided_by: str
+    outcome: DecisionOutcome
+    final_action: str
+    note: str | None = None
+    decided_at: datetime
+    executed: ExecutedActionOut | None = Field(
+        default=None, description="Null when the outcome executed nothing."
+    )
+
+
 class EvidenceOut(BaseModel):
     round: int
     tool: str
@@ -185,6 +224,9 @@ class TriageRecordOut(BaseModel):
 
     evidence: list[EvidenceOut] = Field(default_factory=list)
     provenance: ProvenanceOut | None = None
+    decision: DecisionOut | None = Field(
+        default=None, description="Present once a human has decided."
+    )
 
     duplicate: bool = False
     error: str | None = None

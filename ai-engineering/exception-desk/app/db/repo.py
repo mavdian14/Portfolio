@@ -17,7 +17,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import EvidenceRow, ExceptionRow, IngestJobRow, LlmCallRow
+from app.db.models import DecisionRow, EvidenceRow, ExceptionRow, IngestJobRow, LlmCallRow
 
 # normalise/source_hash are domain rules — what makes two messages "the same" is a property
 # of the message, not of the database — so they live with the inventory master data.
@@ -29,10 +29,12 @@ __all__ = [
     "claim_next_job",
     "cost_summary",
     "count_exceptions",
+    "create_decision",
     "create_or_get_exception",
     "enqueue",
     "finish_job",
     "get_by_hash",
+    "get_decision",
     "get_exception",
     "get_job",
     "list_exceptions",
@@ -91,7 +93,14 @@ async def get_by_hash(session: AsyncSession, digest: str) -> ExceptionRow | None
     stmt = (
         select(ExceptionRow)
         .where(ExceptionRow.source_hash == digest)
-        .options(selectinload(ExceptionRow.evidence), selectinload(ExceptionRow.llm_calls))
+        .options(
+            selectinload(ExceptionRow.evidence),
+            selectinload(ExceptionRow.llm_calls),
+            # Loaded because _to_record renders the decision: without it, building the
+            # response is a lazy load, and async SQLAlchemy raises MissingGreenlet rather
+            # than fetching.
+            selectinload(ExceptionRow.decisions),
+        )
     )
     return (await session.execute(stmt)).scalar_one_or_none()
 
@@ -251,6 +260,63 @@ async def count_exceptions(session: AsyncSession, *, status: str | None = None) 
     if status:
         stmt = stmt.where(ExceptionRow.status == status)
     return int((await session.execute(stmt)).scalar_one())
+
+
+# --------------------------------------------------------------------------------------
+# Decisions
+# --------------------------------------------------------------------------------------
+
+
+async def get_decision(session: AsyncSession, exception_id: uuid.UUID) -> DecisionRow | None:
+    """The most recent decision on an exception, or None."""
+    stmt = (
+        select(DecisionRow)
+        .where(DecisionRow.exception_id == exception_id)
+        .order_by(DecisionRow.decided_at.desc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def create_decision(
+    session: AsyncSession,
+    exception_id: uuid.UUID,
+    *,
+    decided_by: str,
+    outcome: str,
+    final_action: str,
+    note: str | None = None,
+    executed_tool: str | None = None,
+    executed_result: dict[str, Any] | None = None,
+) -> DecisionRow:
+    """Commit a decision and move the record to ``decided``, in one transaction.
+
+    The two writes are one logical change: a decision that left the record looking
+    undecided would be visible as a half-applied state to anyone reading the queue. One
+    ``commit()`` means a reader never sees that.
+
+    ``executed_result`` stores the tool's error envelope when the execution was refused —
+    the tool layer returns errors as data, so a refused action is recorded rather than
+    raised. A decision whose consequence failed is still a decision.
+    """
+    decision = DecisionRow(
+        exception_id=exception_id,
+        decided_by=decided_by,
+        outcome=outcome,
+        final_action=final_action,
+        note=note,
+        executed_tool=executed_tool,
+        executed_result=executed_result,
+    )
+    session.add(decision)
+
+    row = await session.get(ExceptionRow, exception_id)
+    if row is not None:
+        row.status = "decided"
+
+    await session.commit()
+    await session.refresh(decision)
+    return decision
 
 
 # --------------------------------------------------------------------------------------

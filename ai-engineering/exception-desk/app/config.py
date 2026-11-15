@@ -63,6 +63,21 @@ class Settings(BaseSettings):
     #: Attempts before a job is failed for good, regardless of retryability.
     job_max_attempts: int = 5
 
+    # -- streaming ---------------------------------------------------------
+    #: How often the SSE endpoint re-reads the record. Polling is the honest week-3
+    #: implementation: triage runs in a *different process*, so the API has nothing to
+    #: subscribe to without new infrastructure (LISTEN/NOTIFY, Redis, or a broker).
+    stream_poll_interval_s: float = 0.5
+    #: A hard cap on how long one stream stays open, so an abandoned browser tab cannot
+    #: poll the database forever.
+    stream_max_seconds: float = 120.0
+    #: Comment heartbeat cadence, so an idle stream is not closed by an intermediary.
+    stream_heartbeat_s: float = 10.0
+
+    # -- review ------------------------------------------------------------
+    #: Who a decision is attributed to when the caller sends no X-Reviewer header.
+    default_reviewer: str = "demo-reviewer"
+
     # -- service -----------------------------------------------------------
     log_level: str = "INFO"
     demo_api_key: str = "change-me"

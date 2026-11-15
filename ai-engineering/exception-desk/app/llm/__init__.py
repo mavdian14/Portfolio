@@ -54,7 +54,13 @@ def make_client(
     model = model or None
 
     if provider == "mock":
-        return MockClient(model=model or "mock", real_provider="anthropic")
+        # Pass the prompt version so the mock's severity calibration matches the prompt the
+        # pipeline actually rendered. Without this a v2 run would still be graded by v1 rules.
+        return MockClient(
+            model=model or "mock",
+            real_provider="anthropic",
+            prompt_version=settings.prompt_version,
+        )
 
     if provider == "anthropic":
         from app.llm.anthropic import AnthropicClient

@@ -4,7 +4,7 @@
 > validated, evidence-backed records with a recommended action — and nothing gets committed until a
 > human approves it.
 
-Status: **week 2 of 4** · Location: `ai-engineering/exception-desk/` (promote to a standalone repo once
+Status: **week 3 of 4** · Location: `ai-engineering/exception-desk/` (promote to a standalone repo once
 it has a green eval run, a Compose one-liner, and a live URL)
 
 | Week | Scope | State |
@@ -355,12 +355,18 @@ Reported: accuracy per field, p50/p95 latency, cost per case, and a regression g
 
 ## 11. Four weeks, with done-criteria
 
-| Week | Build | Done when |
-| --- | --- | --- |
-| 1 | Promote `domain/` + `llm/`; Postgres in Compose; Alembic; FastAPI skeleton; `POST /triage` against the mock | Compose comes up and a record comes back with evidence rows persisted |
-| 2 | `POST /exceptions` + worker + `SKIP LOCKED` claim + idempotency + cost accounting | The same text posted twice returns `duplicate: true` and creates one row; a forced provider failure retries and then succeeds |
-| 3 | SSE stream, decision endpoint, prompt versioning, degradation | You can watch a triage stream live, approve it, and the decision is audited |
-| 4 | Eval harness + golden set, Compose polish, deploy + demo key, `ui/index.html`, README | A stranger opens the URL, watches a triage, approves one, and the README shows a pass rate |
+| Week | Build | Done when | State |
+| --- | --- | --- | --- |
+| 1 | Promote `domain/` + `llm/`; Postgres in Compose; Alembic; FastAPI skeleton; `POST /triage` against the mock | Compose comes up and a record comes back with evidence rows persisted | ✅ |
+| 2 | `POST /exceptions` + worker + `SKIP LOCKED` claim + idempotency + cost accounting | The same text posted twice returns `duplicate: true` and creates one row; a forced provider failure retries and then succeeds | ✅ |
+| 3 | SSE stream, decision endpoint, prompt versioning, `ui/index.html` | You can watch a triage stream live, approve it, and the decision is audited — including what the approval executed | ✅ |
+| 4 | Eval harness + golden set, Compose polish, deploy + demo key, README | A stranger opens the URL, watches a triage, approves one, and the README shows a pass rate | ⏳ |
+
+Week 3 shipped: `POST /exceptions/{id}/decision` (approve / edit / reject, one per record,
+executing through the domain tool layer and storing the result), `GET /exceptions/{id}/stream`
+(status-only SSE at ~500 ms, one session per poll), prompt **v2** (severity from the numbers
+rather than the wording), `GET /prompts`, and a clickable single-page UI. Migration
+`0003_decision_execution` adds `executed_tool` / `executed_result` to `decisions`.
 
 ## 12. The README a hiring manager reads
 
@@ -380,6 +386,13 @@ Reported: accuracy per field, p50/p95 latency, cost per case, and a regression g
    limit and a hard daily token cap, enforced *before* the provider call.
 5. **Over-engineering the SSE.** Polling the row every 500 ms is the honest week-3 version.
    `LISTEN/NOTIFY` is a week-6 improvement.
-6. **Installing pgvector and building a vector table.** Extension only; M2 gets the table.
-7. **Synthetic data that is too clean.** `data/generate.py` must produce multi-SKU notes, missing dates,
+6. **Rendering a relationship you did not eager-load.** Putting the decision into the audit view made
+   `_to_record` read `row.decisions`, and on the duplicate path that was a lazy load — async SQLAlchemy
+   raises `MissingGreenlet` rather than fetching. Every relationship the response touches has to be in
+   the `selectinload` list of *every* query that feeds it, not just the main one.
+7. **Trusting `ruff check` from before the change.** Its autofix had deleted `DecisionRow` from
+   `repo.py` while nothing referenced the name; the code that used it arrived later. Same for `Any` and
+   `Type`. A clean lint run is evidence about the tree it ran on, not about the tree you are writing.
+8. **Installing pgvector and building a vector table.** Extension only; M2 gets the table.
+9. **Synthetic data that is too clean.** `data/generate.py` must produce multi-SKU notes, missing dates,
    and at least one supplier email with no SKU at all, or the queue and the edge cases go untested.

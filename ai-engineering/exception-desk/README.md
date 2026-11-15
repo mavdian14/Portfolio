@@ -4,7 +4,7 @@ An LLM-backed triage service for supply-chain exceptions. Inbound supplier email
 in; validated, evidence-backed records with a recommended action come out — and nothing gets committed
 until a human approves it.
 
-> **Status: week 2 of 4.** The build plan, data model, API contract and week-by-week done-criteria are
+> **Status: week 3 of 4.** The build plan, data model, API contract and week-by-week done-criteria are
 > in [PLAN.md](PLAN.md). This README grows into the full project story by week 4.
 
 **All inventory data is synthetic.** SKU codes, suppliers and figures are invented sample data — no real
@@ -21,10 +21,12 @@ commercial data is included.
 | `GET /exceptions` | ✅ the queue, filterable by status / severity / SKU |
 | `GET /exceptions/{id}` | ✅ the audit view: record + evidence + provenance |
 | `GET /metrics/cost` | ✅ tokens and USD by model and day |
+| `POST /exceptions/{id}/decision` | ✅ approve / edit / reject — the approved action executes through the tool layer |
+| `GET /exceptions/{id}/stream` | ✅ server-sent events: status changes, then the finished record |
+| `GET /prompts` | ✅ prompt versions on disk, and the one the worker renders |
 | `GET /healthz` · `GET /readyz` | ✅ liveness and database-reachable |
 | `python -m app.pipeline.worker` | ✅ the worker — claims jobs, retries, recovers orphans |
-| `POST /exceptions/{id}/decision` | ⏳ week 3 |
-| `GET /exceptions/{id}/stream` (SSE) | ⏳ week 3 |
+| `ui/index.html` | ✅ a clickable page for the whole loop |
 | `GET /evals/latest` | ⏳ week 4 |
 
 ## Run it
@@ -56,6 +58,7 @@ happened.
 python -m app.pipeline.worker                  # loop until SIGINT/SIGTERM
 python -m app.pipeline.worker --once           # one batch, then exit (CI, cron, demos)
 python -m app.pipeline.worker --concurrency 8  # jobs held in flight
+python -m app.pipeline.worker --prompt-version v2   # render a different prompt set
 python -m app.pipeline.worker --help
 ```
 
@@ -80,6 +83,11 @@ curl -s localhost:8000/triage -H 'content-type: application/json' -d '{
   "text": "Following up on PO-88411 for the M 4K25 RGB (CHR-M4K25-RGB) — our production line is fully committed through December, so we cannot confirm the Nov 14 date. We can offer Dec 2 at the earliest."
 }' | python -m json.tool
 ```
+
+Or open the UI at <http://localhost:8000/> and click through it. Queue a message, watch the
+status frames arrive, read the verdict next to the tool results it rests on, then approve,
+edit or reject. The page will sit on `pending` until you run a worker — which is the
+architecture, not a bug.
 
 Interactive API docs: <http://localhost:8000/docs>
 
@@ -135,6 +143,72 @@ Not every failure deserves a retry, and conflating the two is expensive:
 A terminal failure marks both the job and the record `failed`, with the error stored, because a
 record stuck in `triaging` with no explanation is worse than one that admits it failed.
 
+## The human decision
+
+The service recommends; it never commits. `POST /exceptions/{id}/decision` takes
+`approved`, `edited` or `rejected`.
+
+**Approving executes.** It is not a status flag: the approved action runs through the domain
+tool layer, and the tool's result — including a refusal — is written into the decision row.
+The tool layer returns errors as data rather than raising, so a decision whose consequence
+failed is still recorded as a decision. A record that says "approved" with no trace of what
+followed is the least useful row in the database.
+
+**A rejection executes nothing**, and says so: `executed` comes back `null`. That is the
+point of a rejection.
+
+**One decision per record.** A second `POST` is a `409`, not an overwrite. Silently replacing
+an audit record would defeat the point of having one.
+
+**One transaction.** The decision row and the record's move to `decided` commit together, so
+no reader ever sees a decided record with no decision on it.
+
+## Watching it happen
+
+`GET /exceptions/{id}/stream` is server-sent events. It emits `status` on every change, then
+`record` with the full audit view once the record is terminal, then `done`. A record that is
+already terminal emits everything immediately and closes, so connecting late is not a special
+case.
+
+It polls. That is deliberate: triage runs in a **different process**, so the API has nothing
+to subscribe to — the worker commits to a table and the stream reads it. Making that push
+instead would mean `LISTEN/NOTIFY`, Redis or a broker: real infrastructure for a latency
+improvement measured in milliseconds against a job that takes seconds.
+
+Two details that are easy to get wrong:
+
+- **A session per poll, not the request's.** The generator outlives the request dependency's
+  scope, and one pooled connection held for the life of a browser tab exhausts the pool after
+  a handful of viewers.
+- **The blank line after each frame is the terminator.** Omit it and the client buffers
+  everything until the connection closes, which looks exactly like a broken stream.
+
+## Prompt versioning
+
+Prompts are files: `app/domain/prompts/{triage_system,triage_extract,repair}.vN.md`. Adding a
+file is the whole mechanism. `PROMPT_VERSION` selects one, `--prompt-version` overrides it per
+run, and `GET /prompts` reports what exists and what is active.
+
+A versioning scheme that cannot demonstrate a difference is documentation, not engineering, so
+v2 changes something real: **v1 treats alarming phrasing as a severity signal; v2 calibrates
+severity from the tool results alone.**
+
+```
+"PCB-CTRL-M4K is at zero on hand ... quoted 90 days and we are seeing 152 days actual."
+  cover 5.0 weeks · slippage 62 days
+  v1 -> critical   (the message says "zero on hand")
+  v2 -> high       (5 weeks of cover is not critical, whatever the sender thinks)
+```
+
+Same message, same tools, same data. The record and every `llm_call` store the prompt version
+that produced them, so "which prompt was this?" is answerable from the API and not just from a
+psql shell.
+
+The offline provider has to be told which version it is standing in for — a live model reads
+the rule out of the prompt, the mock cannot. `make_client` passes `settings.prompt_version`
+through for exactly that reason; without it a v2 run would still be graded by v1's rules and
+the comparison would be a lie.
+
 ## Design notes
 
 The decisions worth defending, and the alternatives rejected, are in [PLAN.md §3](PLAN.md). The short
@@ -148,6 +222,8 @@ version:
   invention.
 - **Prompts are versioned files, recorded per record** — so a prompt change can be shown to help, with
   data.
+- **Approving goes through the domain tool layer, not around it** — the same code path the model's
+  read-only tools use, so there is one place where side effects happen and one place to audit.
 - **Evals run against the mock provider in CI.** Live evals cost money on every push and fail on
   provider flakiness.
 
@@ -161,7 +237,7 @@ app/
   db/         SQLAlchemy tables, every query in repo.py, Alembic migrations
   api/        routers, dependency injection
 evals/        golden dataset + scorer (week 4)
-ui/           single static page, no build step
+ui/           single static page, no build step — the clickable front end
 ```
 
 Three rules hold the structure together: **all SQL lives in `db/repo.py`** — no queries in route

@@ -40,6 +40,20 @@ def available_prompts() -> list[str]:
     return sorted(p.stem for p in PROMPTS_DIR.glob("*.md"))
 
 
+def available_versions(name: str) -> list[str]:
+    """Versions on disk for one prompt name, e.g. ``["v1", "v2"]``.
+
+    Enumerating rather than hard-coding is what makes "switch the version and compare"
+    possible: adding a file is the whole mechanism.
+    """
+    prefix = f"{name}."
+    return sorted(p.stem[len(prefix) :] for p in PROMPTS_DIR.glob(f"{name}.*.md"))
+
+
+def prompt_exists(name: str, version: str) -> bool:
+    return (PROMPTS_DIR / f"{name}.{version}.md").is_file()
+
+
 def render(name: str, version: str, **values: object) -> str:
     """Load a prompt and substitute ``{placeholders}``.
 

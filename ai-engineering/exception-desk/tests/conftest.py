@@ -22,6 +22,12 @@ TEST_DATABASE_URL = (
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["PROMPT_VERSION"] = "v1"
+# Stream settings are read from the cached singleton, so they have to be set before the app
+# is imported. Short intervals keep the suite fast; the timeout is low so a stream that
+# should have closed fails the test instead of hanging it.
+os.environ["STREAM_POLL_INTERVAL_S"] = "0.05"
+os.environ["STREAM_HEARTBEAT_S"] = "0.2"
+os.environ["STREAM_MAX_SECONDS"] = "10"
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402

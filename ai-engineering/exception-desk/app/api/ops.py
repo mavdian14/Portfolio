@@ -15,9 +15,12 @@ from sqlalchemy import text
 from app.api.deps import SessionDep, SettingsDep
 from app.db import repo
 from app.domain.models import CostRow, CostSummary
-from app.domain.prompt_loader import available_prompts
+from app.domain.prompt_loader import available_prompts, available_versions
 
 router = APIRouter(tags=["ops"])
+
+#: The prompts a triage run renders, in the order it renders them.
+PROMPT_NAMES = ("triage_system", "triage_extract", "repair")
 
 
 @router.get("/healthz", summary="Liveness — is the process up")
@@ -51,6 +54,24 @@ async def readyz(request: Request, session: SessionDep, settings: SettingsDep) -
 
     healthy = checks["database"] == "ok" and checks["prompts"] == "ok"
     return {"ready": healthy, "checks": checks}
+
+
+@router.get("/prompts", summary="Prompt versions on disk, and the one this process renders")
+async def prompts(settings: SettingsDep) -> dict[str, object]:
+    """Makes prompt versioning visible instead of a thing you have to know about.
+
+    The worker is a separate process, so the version it renders is not something the API can
+    change — but it can report what exists and what is active, which is what a UI needs to
+    explain why two records disagree.
+    """
+    return {
+        "active": settings.prompt_version,
+        "available": {name: available_versions(name) for name in PROMPT_NAMES},
+        "note": (
+            "The worker renders `active`. Compare versions by running "
+            "`python -m app.pipeline.worker --once --prompt-version v2`."
+        ),
+    }
 
 
 @router.get("/metrics/cost", response_model=CostSummary, summary="Tokens and spend")

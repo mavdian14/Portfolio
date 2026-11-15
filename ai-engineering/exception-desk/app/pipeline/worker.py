@@ -243,7 +243,7 @@ class Worker:
     async def run_forever(self) -> None:
         logger.info(
             "worker %s starting | concurrency=%d poll=%.1fs stale_after=%ds "
-            "max_attempts=%d provider=%s model=%s",
+            "max_attempts=%d provider=%s model=%s prompt_version=%s",
             self.worker_id,
             self.settings.worker_concurrency,
             self.settings.worker_poll_interval_s,
@@ -251,7 +251,8 @@ class Worker:
             self.settings.job_max_attempts,
             self.client.provider,
             self.client.model,
-        )
+            self.settings.prompt_version,
+            )
 
         while not self._stopping:
             # run_once reclaims stale locks itself, so recovery happens on the same cadence as
@@ -311,6 +312,15 @@ def build_parser() -> argparse.ArgumentParser:
             "the backoff and retry path can be watched. Mock provider only."
         ),
     )
+    parser.add_argument(
+        "--prompt-version",
+        default=None,
+        metavar="V",
+        help=(
+            "override PROMPT_VERSION for this run, e.g. v2. Adding a prompt file is the whole "
+            "mechanism; see app/domain/prompts/."
+        ),
+    )
     parser.add_argument("--log-level", default=None, help="override LOG_LEVEL")
     return parser
 
@@ -365,6 +375,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     if args.concurrency is not None:
         settings.worker_concurrency = max(args.concurrency, 1)
+    if args.prompt_version is not None:
+        settings.prompt_version = args.prompt_version
     _configure_logging(args.log_level or settings.log_level)
 
     if settings.llm_provider == "mock" and not args.once:

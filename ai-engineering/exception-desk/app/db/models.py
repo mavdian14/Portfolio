@@ -105,7 +105,12 @@ class EvidenceRow(Base):
 
 
 class DecisionRow(Base):
-    """A human's verdict on the recommendation. Only this commits anything."""
+    """A human's verdict on the recommendation. Only this commits anything.
+
+    ``executed_tool`` / ``executed_result`` record what the approval actually *did* — the
+    domain tool that ran and what it returned. A decision that says "approved" without saying
+    what followed is an audit trail with a hole in it.
+    """
 
     __tablename__ = "decisions"
 
@@ -117,6 +122,10 @@ class DecisionRow(Base):
     outcome: Mapped[str] = mapped_column(Text, nullable=False)  # approved | edited | rejected
     final_action: Mapped[str] = mapped_column(Text, nullable=False)
     note: Mapped[str | None] = mapped_column(Text)
+    #: The tool the approval invoked, e.g. "flag_exception". Null when nothing was executed.
+    executed_tool: Mapped[str | None] = mapped_column(Text)
+    #: What that tool returned, including its error envelope when it refused.
+    executed_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     decided_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
